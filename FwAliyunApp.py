@@ -338,7 +338,7 @@ class FwAliyunApp:
                                             })
                                             
                                             logger.debug(f"IP {ip} 成功添加到现有组，已从remaining_ips移除")
-                                            break
+                                            break  # 跳出 for group 循环
                                         except Exception as cleanup_error:
                                             logger.error(f"清理IP状态时发生异常: {cleanup_error}")
                                             # 即使清理失败，也不要重复处理，直接添加到失败列表
@@ -351,6 +351,7 @@ class FwAliyunApp:
                                         logger.error(f"修改地址组失败: {res_modify}")
                         
                         # 创建新组
+                        logger.debug(f"IP {ip} processed标志: {processed}")
                         if not processed:
                             # 生成随机后缀
                             random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
