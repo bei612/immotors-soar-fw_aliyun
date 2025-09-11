@@ -227,6 +227,7 @@ class FwAliyunApp:
             while remaining_ips:
                 initial_count = len(remaining_ips)
                 logger.info(f"剩余待处理IP数量: {len(remaining_ips)}")
+                logger.debug(f"当前remaining_ips: {remaining_ips}")
                 
                 # 按地址类型分组处理
                 ip_groups = {"ipv4": [], "network": [], "domain": []}
@@ -315,7 +316,8 @@ class FwAliyunApp:
                                     )
                                     
                                     if not isinstance(res_modify, str) and res_modify.get('statusCode') == 200:
-                                        # 原子操作：先更新所有状态，再添加到结果列表
+                                        # 原子操作：先标记为已处理，再执行状态更新
+                                        processed = True  # 先标记为已处理，防止重复处理
                                         try:
                                             # 更新组信息
                                             group['AddressList'] = new_address_list
@@ -326,7 +328,7 @@ class FwAliyunApp:
                                             if ip in remaining_ips:
                                                 remaining_ips.remove(ip)
                                             
-                                            # 只有在所有操作成功后才添加到成功列表
+                                            # 添加到成功列表
                                             success_ips.append({
                                                 "addr": ip,
                                                 "groupname": group['GroupName'],
@@ -335,11 +337,16 @@ class FwAliyunApp:
                                                 "desc": "封禁成功"
                                             })
                                             
-                                            processed = True
+                                            logger.debug(f"IP {ip} 成功添加到现有组，已从remaining_ips移除")
                                             break
                                         except Exception as cleanup_error:
                                             logger.error(f"清理IP状态时发生异常: {cleanup_error}")
-                                            # 如果清理失败，不标记为processed，让后续逻辑处理
+                                            # 即使清理失败，也不要重复处理，直接添加到失败列表
+                                            failed_ips.append({
+                                                "addr": ip,
+                                                "desc": "状态清理失败"
+                                            })
+                                            break
                                     else:
                                         logger.error(f"修改地址组失败: {res_modify}")
                         
