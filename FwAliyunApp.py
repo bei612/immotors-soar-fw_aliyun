@@ -448,22 +448,22 @@ class FwAliyunApp:
                                         })
                                     except Exception as cleanup_error:
                                         logger.error(f"处理失败IP时清理状态发生异常: {cleanup_error}")
-                        else:
-                            # 原子操作：先清理状态，再添加到失败列表
-                            logger.debug(f"IP {ip} 创建地址组失败，准备添加到失败列表")
-                            try:
-                                if ip in type_ips:
-                                    type_ips.remove(ip)
-                                if ip in remaining_ips:
-                                    remaining_ips.remove(ip)
-                                
-                                failed_ips.append({
-                                    "addr": ip,
-                                    "desc": "创建地址组失败"
-                                })
-                                logger.debug(f"IP {ip} 已添加到失败列表")
-                            except Exception as cleanup_error:
-                                logger.error(f"处理创建地址组失败时清理状态发生异常: {cleanup_error}")
+                            else:
+                                # 原子操作：先清理状态，再添加到失败列表
+                                logger.debug(f"IP {ip} 创建地址组失败，准备添加到失败列表")
+                                try:
+                                    if ip in type_ips:
+                                        type_ips.remove(ip)
+                                    if ip in remaining_ips:
+                                        remaining_ips.remove(ip)
+                                    
+                                    failed_ips.append({
+                                        "addr": ip,
+                                        "desc": "创建地址组失败"
+                                    })
+                                    logger.debug(f"IP {ip} 已添加到失败列表")
+                                except Exception as cleanup_error:
+                                    logger.error(f"处理创建地址组失败时清理状态发生异常: {cleanup_error}")
                 
                 # 检查处理进展
                 if len(remaining_ips) == initial_count:
