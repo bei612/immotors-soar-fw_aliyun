@@ -5,9 +5,10 @@ from cbt.base_app import BaseApp
 from cbt.action_result import ActionResult
 import cbt.status as cbt_status
 from apps.fw_aliyun.FwAliyunApp import FwAliyunApp
-from loguru import logger  # 导入日记库，没有请先安装 pip install loguru
+from loguru import logger
 import os
 import ipaddress
+import re
 
 class App(BaseApp):
 
@@ -15,16 +16,25 @@ class App(BaseApp):
         self.ak = asset_config.get('ak')
         self.sk = asset_config.get('sk')
         self.endpoint = asset_config.get('endpoint')
-        self.proxies = asset_config.get("proxy_url", "")
-        
+        self.proxy_url = asset_config.get('proxy_url', '')
+        self.proxy_user = asset_config.get('proxy_user', '')
+        self.proxy_pass = asset_config.get('proxy_pass', '')
+        if re.match(r'(http|https|socks5)://[\w\.]+:\d+', self.proxy_url):
+            if self.proxy_user == '' or self.proxy_pass == '':
+                self.proxies = self.proxy_url
+            else:
+                scheme = self.proxy_url.split('://')
+                self.proxies = f"{scheme[0]}://{self.proxy_user}:{self.proxy_pass}@{scheme[1]}"
+        else:
+            self.proxies = None
         return cbt_status.APP_SUCCESS
 
     def unload(self):
         pass
 
     def handle_action(self, action_id, params, action_context):
-        # action_id 动作ip，数据类型string
-        # params 动作参数，数据类型dict
+        # action_id 动作ID
+        # params 动作参数
         # action_context 动作上下文
         result = ActionResult()
         # 脚本调用的接口
@@ -47,10 +57,10 @@ class App(BaseApp):
     def test_connectivity(self):
         # 连通性测试
         # return: True or False
-        # TODO 自己实现联通性测试的逻辑
+        # TODO 实现连通性测试逻辑
         try:
             app = FwAliyunApp(ak=self.ak, sk=self.sk, endpoint=self.endpoint, proxies=self.proxies)
-            # 简单测试：尝试查询地址簿来验证连通性
+            # 查询地址簿验证连通性
             app.describe_address_book("", "ip")
             return True
         except Exception as e:
@@ -117,29 +127,20 @@ class App(BaseApp):
         res = deletecontrolpolicyobj.delete_control_policy(acluuid, direction)
         return res
 
-    def SingleBlockAddress(self, params):
+
+
+    def AutoBlockTask(self, params):
+        """批量封禁IP地址"""
         addr = params.get("addr")
         direction = params.get("direction")
-        singleblockaddressobj = FwAliyunApp(ak=self.ak, sk=self.sk, endpoint=self.endpoint, proxies=self.proxies)
-        res = singleblockaddressobj.single_block_address(addr, direction)
+        autoblockobj = FwAliyunApp(ak=self.ak, sk=self.sk, endpoint=self.endpoint, proxies=self.proxies)
+        res = autoblockobj.auto_block_task(addr, direction)
         return res
 
-    def SingleUnblockAddress(self, params):
+    def AutoUnblockTask(self, params):
+        """批量解封IP地址"""
         addr = params.get("addr")
         direction = params.get("direction")
-        singleunblockaddressobj = FwAliyunApp(ak=self.ak, sk=self.sk, endpoint=self.endpoint, proxies=self.proxies)
-        res = singleunblockaddressobj.single_unblock_address(addr, direction)
-        return res
-
-    def HwBlockAddress(self, params):
-        direction = params.get("direction")
-        hwblockaddressobj = FwAliyunApp(ak=self.ak, sk=self.sk, endpoint=self.endpoint, proxies=self.proxies)
-        res = hwblockaddressobj.hw_block_address(direction)
-        return res
-
-    def HwBlockCheck(self, params):
-        query = params.get("query")
-        grouptype = params.get("grouptype")
-        hwblockcheckobj = FwAliyunApp(ak=self.ak, sk=self.sk, endpoint=self.endpoint, proxies=self.proxies)
-        res = hwblockcheckobj.hw_block_check(query, grouptype)
+        autounblockobj = FwAliyunApp(ak=self.ak, sk=self.sk, endpoint=self.endpoint, proxies=self.proxies)
+        res = autounblockobj.auto_unblock_task(addr, direction)
         return res

@@ -286,82 +286,45 @@
       }
     },
     {
-      "name": "执行封禁任务",
-      "id": "SingleBlockAddress",
-      "description": "执行封禁任务",
+      "name": "批量封禁IP地址",
+      "id": "AutoBlockTask",
+      "description": "批量封禁IP地址到阿里云防火墙，支持多种IP输入格式和智能容量管理",
       "type": "generic",
       "parameters": {
         "addr": {
-          "name": "资源地址",
-          "description": "需要封禁的资源地址",
+          "name": "IP地址列表",
+          "description": "需要封禁的IP地址列表，支持字符串（逗号/分号/空格/换行符分隔）或数组格式，如：'1.1.1.1,2.2.2.2' 或 ['3.3.3.3','4.4.4.4']",
           "dataType": "STRING",
           "order": 0,
           "required": "true"
         },
         "direction": {
           "name": "流量方向",
-          "description": "需要封禁的流量方向",
+          "description": "需要封禁的流量方向：'in'（入站）或'out'（出站）",
           "dataType": "STRING",
-          "order": 0,
+          "order": 1,
           "required": "true"
         }
       }
     },
     {
-      "name": "执行解封任务",
-      "id": "SingleUnblockAddress",
-      "description": "执行解封任务",
+      "name": "批量解封IP地址",
+      "id": "AutoUnblockTask",
+      "description": "批量解封IP地址从阿里云防火墙，支持全局查找和智能组管理",
       "type": "generic",
       "parameters": {
         "addr": {
-          "name": "资源地址",
-          "description": "需要解封的资源地址",
+          "name": "IP地址列表",
+          "description": "需要解封的IP地址列表，支持字符串（逗号/分号/空格/换行符分隔）或数组格式，如：'1.1.1.1,2.2.2.2' 或 ['3.3.3.3','4.4.4.4']",
           "dataType": "STRING",
           "order": 0,
           "required": "true"
         },
         "direction": {
           "name": "流量方向",
-          "description": "需要解封的流量方向",
+          "description": "需要解封的流量方向：'in'（入站）或'out'（出站）",
           "dataType": "STRING",
-          "order": 0,
-          "required": "true"
-        }
-      }
-    },
-    {
-      "name": "护网手动封禁",
-      "id": "HwBlockAddress",
-      "description": "护网手动封禁",
-      "type": "generic",
-      "parameters": {
-        "direction": {
-          "name": "流量方向",
-          "description": "需要封禁的流量方向",
-          "dataType": "STRING",
-          "order": 0,
-          "required": "true"
-        }
-      }
-    },
-    {
-      "name": "护网手动校验",
-      "id": "HwBlockCheck",
-      "description": "护网手动校验",
-      "type": "generic",
-      "parameters": {
-        "query": {
-          "name": "搜索条件",
-          "description": "需要查询的搜索条件",
-          "dataType": "STRING",
-          "order": 0,
-          "required": "true"
-        },
-        "grouptype": {
-          "name": "资源组类型",
-          "description": "需要查询的搜索条件",
-          "dataType": "STRING",
-          "order": 0,
+          "order": 1,
           "required": "true"
         }
       }

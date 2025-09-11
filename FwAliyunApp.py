@@ -1,138 +1,23 @@
+# -*- coding: utf-8 -*-
 from alibabacloud_cloudfw20171207.client import Client as Cloudfw20171207Client
 from alibabacloud_tea_openapi import models as open_api_models
 from alibabacloud_cloudfw20171207 import models as cloudfw_20171207_models
 from alibabacloud_tea_util import models as util_models
 from alibabacloud_tea_util.client import Client as UtilClient
-from loguru import logger  # 导入日记库，没有请先安装 pip install loguru
+from loguru import logger
+from apps.fw_aliyun import utils
 import os
 import ipaddress
 import random
 import string
-import re
 
 class FwAliyunApp:
-    # 封禁、接封禁业务场景的常量配置
-    BLACKLIST_IN_GROUP = "DEV-P-Deny-Secops-Blacklist-In" # 入向地址资源组和控制策略组
-    BLACKLIST_OUT_GROUP = "DEV-P-Deny-Secops-Blacklist-Out" # 出向地址资源组和控制策略组
-    MAX_ADDRESS_GROUP_SIZE = 2000  # 当前购买的阿里云的地址资源组最大数量是 2000
-    ACL_ACTION_DROP = 'log'  # 控制策略动作  生产用drop，测试用log
     
     def __init__(self, ak, sk, endpoint, proxies):
         self.ak = ak
         self.sk = sk
         self.endpoint = endpoint
-        self.proxies = self.process_proxy_config(proxies.strip() if proxies else "")
-        pass
-    
-    def process_proxy_config(self, proxy_url):
-        """
-        处理代理配置，解析统一格式并转换为阿里云SDK支持的格式
-        支持多种格式：
-        - 无代理：None 或 空字符串
-        - 无认证：http://proxy.example.com:8080
-        - 有认证：http://user:pass@proxy.example.com:8080
-        - SOCKS5：socks5://user:pass@proxy.example.com:1080
-        
-        Args:
-            proxy_url (str): 代理URL，格式：协议://[用户名:密码@]地址:端口
-            
-        Returns:
-            dict: 包含代理配置信息的字典，如果为空则返回None
-                 格式: {'protocol': 'http|https|socks5', 'url': '完整URL'}
-        """
-        if not proxy_url:
-            return None
-            
-        # 验证代理URL格式
-        proxy_pattern = r'^(https?|socks5)://(?:([^:]+):([^@]+)@)?([^:]+):(\d+)$'
-        match = re.match(proxy_pattern, proxy_url)
-        if not match:
-            logger.warning(f"代理URL格式不正确: {proxy_url}")
-            return None
-            
-        protocol, username, password, host, port = match.groups()
-        # 验证协议支持
-        if protocol not in ['http', 'https', 'socks5']:
-            logger.warning(f"不支持的代理协议: {protocol}")
-            return None
-        # 验证端口范围
-        try:
-            port_num = int(port)
-            if not (1 <= port_num <= 65535):
-                logger.warning(f"代理端口超出范围: {port}")
-                return None
-        except ValueError:
-            logger.warning(f"代理端口格式错误: {port}")
-            return None
-        # 验证主机地址格式
-        if not host or len(host.strip()) == 0:
-            logger.warning(f"代理主机地址为空")
-            return None
-        
-        logger.info(f"使用代理: {protocol}://{host}:{port}" + 
-                   (f" (用户: {username})" if username else " (无认证)"))
-        
-        # 返回代理配置信息
-        return {
-            'protocol': protocol,
-            'url': proxy_url
-        }
-
-    def create_runtime_options(self):
-        """
-        根据代理配置创建RuntimeOptions
-        
-        Returns:
-            util_models.RuntimeOptions: 配置了代理的运行时选项
-        """
-        if not self.proxies:
-            return util_models.RuntimeOptions()
-        
-        proxy_protocol = self.proxies['protocol']
-        proxy_url = self.proxies['url']
-        
-        if proxy_protocol == 'socks5':
-            # SOCKS5代理
-            return util_models.RuntimeOptions(socks_5proxy=proxy_url)
-        else:
-            # HTTP/HTTPS代理
-            return util_models.RuntimeOptions(https_proxy=proxy_url, http_proxy=proxy_url)
-
-    def check_address_type(self, addresslist):
-        try:
-            ipaddress.IPv4Address(addresslist)
-            return "ipv4"
-        except ipaddress.AddressValueError:
-            pass
-
-        try:
-            ipaddress.IPv6Address(addresslist)
-            return "ipv6"
-        except ipaddress.AddressValueError:
-            pass
-        try:
-            ipaddress.IPv4Network(addresslist)
-            return "network"
-        except (ipaddress.AddressValueError, ipaddress.NetmaskValueError):
-            pass
-        return "domain"
-
-    def check_os_type(self):
-        sysname = os.uname().sysname
-        logs_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__))) + "/logs"
-        file_name = os.path.splitext(os.path.basename(__file__))[0].lower()
-        logger.remove()
-        if sysname == "Darwin":
-            logger.add(f'{logs_path}/{file_name}_run.log', rotation='00:00', encoding='utf-8', enqueue=True,
-                       retention="30 days")
-        elif sysname == "Linux":
-            logger.add(f'{os.path.dirname(__file__)}/run.log', rotation='500MB')
-
-    def filter_check(self, addr, network):
-        if ipaddress.ip_address(addr) in ipaddress.ip_network(network):
-            return True
-        else:
-            return False
+        self.proxies = proxies
 
     def create_client(self) -> Cloudfw20171207Client:
         config = open_api_models.Config(
@@ -142,36 +27,31 @@ class FwAliyunApp:
         config.endpoint = self.endpoint
         return Cloudfw20171207Client(config)
 
+    # 阿里云云防火墙原子方法
+
     def add_address_book(self, groupname, grouptype, description, addresslist):
         client = self.create_client()
-        random_string = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
-        
         add_address_book_request = cloudfw_20171207_models.AddAddressBookRequest(
-            description=f"{description}-{random_string}",
-            group_name=f"{groupname}-{random_string}",
+            group_name=groupname,
             group_type=grouptype,
+            description=description,
             address_list=addresslist
         )
-        runtime = self.create_runtime_options()
-        # 定义日志配置
-        self.check_os_type()
+        runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
+        utils.check_os_type()
         try:
             res = client.add_address_book_with_options(add_address_book_request, runtime).to_map()
             logger.info(f'{res}')
             if res['statusCode'] == 200:
                 msg = {
-                    "groupname": f"{groupname}-{random_string}",
-                    "description": f"{description}-{random_string}",
+                    "desc": "创建成功",
+                    "groupname": groupname,
                     "groupuuid": res['body']['GroupUuid'],
-                    "grouptype": f"{grouptype}",
-                    "desc": "创建成功"
+                    "description": description
                 }
                 return msg
             else:
                 msg = {
-                    "groupname": f"{groupname}-{random_string}",
-                    "description": f"{description}-{random_string}",
-                    "grouptype": f"{grouptype}",
                     "desc": "创建失败"
                 }
                 return msg
@@ -180,15 +60,13 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
-
     def delete_address_book(self, groupuuid):
         client = self.create_client()
         delete_address_book_request = cloudfw_20171207_models.DeleteAddressBookRequest(
             group_uuid=groupuuid
         )
-        runtime = self.create_runtime_options()
-        # 定义日志配置
-        self.check_os_type()
+        runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
+        utils.check_os_type()
         try:
             res = client.delete_address_book_with_options(delete_address_book_request, runtime).to_map()
             logger.info(f'{res}')
@@ -202,13 +80,11 @@ class FwAliyunApp:
         client = self.create_client()
         describe_address_book_request = cloudfw_20171207_models.DescribeAddressBookRequest(
             query=query,
-            current_page=1,
-            page_size=500,
-            group_type=grouptype
+            group_type=grouptype,
+            page_size=utils.get_config('describe_address_book.page_size', 100)
         )
-        runtime = self.create_runtime_options()
-        # 定义日志配置
-        self.check_os_type()
+        runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
+        utils.check_os_type()
         try:
             res = client.describe_address_book_with_options(describe_address_book_request, runtime).to_map()
             logger.info(f'{res}')
@@ -221,14 +97,13 @@ class FwAliyunApp:
     def modify_address_book(self, groupname, groupuuid, description, addresslist):
         client = self.create_client()
         modify_address_book_request = cloudfw_20171207_models.ModifyAddressBookRequest(
-            description=description,
             group_name=groupname,
             group_uuid=groupuuid,
+            description=description,
             address_list=addresslist
         )
-        runtime = self.create_runtime_options()
-        # 定义日志配置
-        self.check_os_type()
+        runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
+        utils.check_os_type()
         try:
             res = client.modify_address_book_with_options(modify_address_book_request, runtime).to_map()
             logger.info(f'{res}')
@@ -242,12 +117,10 @@ class FwAliyunApp:
         client = self.create_client()
         describe_control_policy_request = cloudfw_20171207_models.DescribeControlPolicyRequest(
             direction=direction,
-            current_page=1,
-            page_size=500
+            page_size=utils.get_config('describe_control_policy.page_size', 100)
         )
-        runtime = self.create_runtime_options()
-        # 定义日志配置
-        self.check_os_type()
+        runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
+        utils.check_os_type()
         try:
             res = client.describe_control_policy_with_options(describe_control_policy_request, runtime).to_map()
             logger.info(f'{res}')
@@ -258,10 +131,9 @@ class FwAliyunApp:
             return res
 
     def add_control_policy(self, aclaction, description, destination, destinationtype, direction, proto, source,
-                           sourcetype, neworder, applicationname=None, applicationnamelist=None):
+                          sourcetype, neworder, applicationname, applicationnamelist=None):
         client = self.create_client()
-        if applicationname:
-            add_control_policy_request = cloudfw_20171207_models.AddControlPolicyRequest(
+        add_control_policy_request = cloudfw_20171207_models.AddControlPolicyRequest(
                 acl_action=aclaction,
                 description=description,
                 destination=destination,
@@ -271,42 +143,22 @@ class FwAliyunApp:
                 source=source,
                 source_type=sourcetype,
                 new_order=neworder,
-                application_name=applicationname
-            )
-        elif applicationnamelist:
-            if type(applicationnamelist) == str:
-                applicationnamelist = ['HTTP','HTTPS','SSL','SMTP','SMTPS']
-            add_control_policy_request = cloudfw_20171207_models.AddControlPolicyRequest(
-                acl_action=aclaction,
-                description=description,
-                destination=destination,
-                destination_type=destinationtype,
-                direction=direction,
-                proto=proto,
-                source=source,
-                source_type=sourcetype,
-                new_order=neworder,
+            application_name=applicationname,
                 application_name_list=applicationnamelist
             )
-        runtime = self.create_runtime_options()
-        # 定义日志配置
-        self.check_os_type()
+        runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
+        utils.check_os_type()
         try:
             res = client.add_control_policy_with_options(add_control_policy_request, runtime).to_map()
             logger.info(f"{res}")
             if res['statusCode'] == 200:
                 msg = {
-                    "policyname": f"{destination}",
-                    "description": f"{description}",
-                    "grouptype": f"{destinationtype}",
-                    "desc": "创建成功"
+                    "desc": "创建成功",
+                    "acluuid": res['body']['AclUuid']
                 }
                 return msg
             else:
                 msg = {
-                    "policyname": f"{destination}",
-                    "description": f"{description}",
-                    "grouptype": f"{destinationtype}",
                     "desc": "创建失败"
                 }
                 return msg
@@ -321,9 +173,8 @@ class FwAliyunApp:
             acl_uuid=acluuid,
             direction=direction
         )
-        runtime = self.create_runtime_options()
-        # 定义日志配置
-        self.check_os_type()
+        runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
+        utils.check_os_type()
         try:
             res = client.delete_control_policy_with_options(delete_control_policy_request, runtime).to_map()
             logger.info(f'{res}')
@@ -333,665 +184,432 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
-    def single_block_address(self, addr, direction=None):
-        # 定义日志配置
-        self.check_os_type()
-        # 判断需要解封的地址资源属于ip类型或net类型或domain类型
-        if self.check_address_type(addr) == "ipv4":
-            addr_obj = f"{addr}/32"
-            describe_address_book_grouptype = "ip"
-        elif self.check_address_type(addr) == "network":
-            addr_obj = f"{addr}"
-            describe_address_book_grouptype = "ip"
-        elif self.check_address_type(addr) == "domain":
-            addr_obj = f"{addr}"
-            describe_address_book_grouptype = "domain"
-        elif self.check_address_type(addr) == "ipv6":
-            msg = {
-                "addr": f"{addr}",
-                "desc": "无需封禁"
-            }
-            logger.info(f'{msg}')
-            return msg
-        # 验证direction参数并查询相应的地址资源组
-        if direction == 'in':
-            query_prefix = self.BLACKLIST_IN_GROUP
-        elif direction == 'out':
-            query_prefix = self.BLACKLIST_OUT_GROUP
-        else:
-            # direction参数无效时返回错误信息
-            msg = {
-                "addr": f"{addr}",
-                "desc": "direction参数必须为'in'或'out'"
-            }
-            logger.error(f'{msg}')
-            return msg
+    def auto_block_task(self, addr, direction=None):
+        """批量封禁IP地址"""
+        try:
+            utils.check_os_type()
             
-        res_describe_address_book = self.describe_address_book(
-            query=query_prefix,
-            grouptype=describe_address_book_grouptype
-        )
-        # 判断需要封禁的地址资源是否已存在于现有封禁策略中，如存在则found赋值为True，如不存在则found赋值为False
-        found = False
-        for list_res_describe_address_book in res_describe_address_book['body']['Acls']:
-            # 需要检查组名，因为query可能是模糊搜索，返回的结果可能包含其他相关组
-            if ((direction == 'in' and self.BLACKLIST_IN_GROUP in list_res_describe_address_book['GroupName']) or
-                (direction == 'out' and self.BLACKLIST_OUT_GROUP in list_res_describe_address_book['GroupName'])):
-                match_list = list_res_describe_address_book['AddressList']
-                if addr_obj in match_list:
-                    found = True
-                    break
-        # 判断需要封禁的地址资源是否执行封禁任务，如found值为True，返回msg无需封禁
-        if found == True:
-            msg = {
-                "addr": f"{addr}",
-                "desc": "无需封禁"
-            }
-            logger.info(f'{msg}')
-            return msg
-        # 判断需要封禁的地址资源是否执行封禁任务，如found值为False，执行封禁任务序列
-        elif found == False:
-            if direction == 'in':
-                # 将包含入站黑名单的地址资源组汇总成addrgrps地址资源组列表
-                addrgrps = [data_describe_address_book for data_describe_address_book in
-                            res_describe_address_book['body']['Acls']
-                            if self.BLACKLIST_IN_GROUP in data_describe_address_book['GroupName']]
-                print(f'包含入站黑名单的地址资源组: {addrgrps}')
-                for addrgrp in addrgrps:
-                    len_addrgrp = len(addrgrp['AddressList'])
-                    data_len_addrgrp = len_addrgrp + 1
-                    # 判断需要封禁的地址资源组内的地址资源是否超过最大上限，如不超过限制，将需要封禁的地址资源更新至地址资源组
-                    if len_addrgrp < self.MAX_ADDRESS_GROUP_SIZE:
-                        addrgrp_groupname = addrgrp['GroupName']
-                        addrgrp_groupuuid = addrgrp['GroupUuid']
-                        addrgrp_description = addrgrp['Description']
-                        list_addrgrp_addresslist = addrgrp['AddressList']
-                        list_addrgrp_addresslist.append(addr_obj)
-                        data_addrgrp_addresslist = ','.join(list_addrgrp_addresslist)
-                        # 将需要封禁的地址资源更新至地址资源组
-                        res_modify_address_book = self.modify_address_book(
-                            groupname=addrgrp_groupname,
-                            groupuuid=addrgrp_groupuuid,
-                            description=addrgrp_description,
-                            addresslist=data_addrgrp_addresslist
-                        )
-                        if res_modify_address_book['statusCode'] == 200:
-                            msg = {
-                                "addr": f"{addr}",
-                                "groupname": f"{addrgrp_groupname}",
-                                "groupuuid": f"{addrgrp_groupuuid}",
-                                "description": f"{addrgrp_description}",
-                                "grouplen": f"{data_len_addrgrp}",
-                                "desc": "封禁成功"
-                            }
-                            logger.info(f'{msg}')
-                            return msg
-                        else:
-                            msg = {
-                                "addr": f"{addr}",
-                                "groupname": f"{addrgrp_groupname}",
-                                "groupuuid": f"{addrgrp_groupuuid}",
-                                "description": f"{addrgrp_description}",
-                                "grouplen": f"{data_len_addrgrp}",
-                                "desc": "封禁失败"
-                            }
-                            logger.info(f'{msg}')
-                            return msg
-                    # 判断需要封禁的地址资源组内的地址资源是否超过最大上限，如超过限制，新建控制策略组，新建地址资源组，将需要封禁的地址资源更新至新建的地址资源组
-                    else:
-                        # 创建地址资源组，将需要封禁的地址资源更新至新至新建的地址资源组
-                        res_add_address_book = self.add_address_book(
-                            groupname=self.BLACKLIST_IN_GROUP,
-                            grouptype=describe_address_book_grouptype,
-                            description=self.BLACKLIST_IN_GROUP,
-                            addresslist=addr_obj
-                        )
-                        res_add_address_book_groupname = res_add_address_book['groupname']
-                        res_add_address_book_description = res_add_address_book['description']
-                        res_add_address_book_groupuuid = res_add_address_book['groupuuid']
-                        # 创建控制策略组，将需要封禁的地址资源组更新至新建的控制策略组
-                        res_add_control_policy = self.add_control_policy(
-                            aclaction=self.ACL_ACTION_DROP,
-                            description=res_add_address_book_description,
-                            destination='0.0.0.0/0',
-                            destinationtype='net',
-                            direction=direction,
-                            proto='ANY',
-                            source=res_add_address_book_groupname,
-                            sourcetype='group',
-                            neworder=2,
-                            applicationname='ANY'
-                        )
-                        if res_add_address_book['desc'] == "创建成功" and res_add_control_policy['desc'] == "创建成功":
-                            msg = {
-                                "addr": f"{addr}",
-                                "groupname": f"{res_add_address_book_groupname}",
-                                "groupuuid": f"{res_add_address_book_groupuuid}",
-                                "description": f"{res_add_address_book_description}",
-                                "grouplen": 1,
-                                "desc": "封禁成功"
-                            }
-                            logger.info(f'{msg}')
-                            return msg
-                        else:
-                            msg = {
-                                "addr": f"{addr}",
-                                "groupname": f"{res_add_address_book_groupname}",
-                                "groupuuid": f"{res_add_address_book_groupuuid}",
-                                "description": f"{res_add_address_book_description}",
-                                "grouplen": 1,
-                                "desc": "封禁失败"
-                            }
-                            logger.info(f'{msg}')
-                            return msg
-                
-                # 如果没有找到现有的入站黑名单地址组，创建第一个地址组和控制策略
-                if not addrgrps:
-                    # 创建地址资源组，将需要封禁的地址资源更新至新建的地址资源组
-                    res_add_address_book = self.add_address_book(
-                        groupname=self.BLACKLIST_IN_GROUP,
-                        grouptype=describe_address_book_grouptype,
-                        description=self.BLACKLIST_IN_GROUP,
-                        addresslist=addr_obj
-                    )
-                    res_add_address_book_groupname = res_add_address_book['groupname']
-                    res_add_address_book_description = res_add_address_book['description']
-                    res_add_address_book_groupuuid = res_add_address_book['groupuuid']
-                    # 创建控制策略组，将需要封禁的地址资源组更新至新建的控制策略组
-                    res_add_control_policy = self.add_control_policy(
-                        aclaction=self.ACL_ACTION_DROP,
-                        description=res_add_address_book_description,
-                        destination='0.0.0.0/0',
-                        destinationtype='net',
-                        direction=direction,
-                        proto='ANY',
-                        source=res_add_address_book_groupname,
-                        sourcetype='group',
-                        neworder=2,
-                        applicationname='ANY'
-                    )
-                    if res_add_address_book['desc'] == "创建成功" and res_add_control_policy['desc'] == "创建成功":
-                        msg = {
-                            "addr": f"{addr}",
-                            "groupname": f"{res_add_address_book_groupname}",
-                            "groupuuid": f"{res_add_address_book_groupuuid}",
-                            "description": f"{res_add_address_book_description}",
-                            "grouplen": 1,
-                            "desc": "封禁成功"
-                        }
-                        logger.info(f'{msg}')
-                        return msg
-                    else:
-                        msg = {
-                            "addr": f"{addr}",
-                            "groupname": f"{res_add_address_book_groupname}",
-                            "groupuuid": f"{res_add_address_book_groupuuid}",
-                            "description": f"{res_add_address_book_description}",
-                            "grouplen": 1,
-                            "desc": "封禁失败"
-                        }
-                        logger.info(f'{msg}')
-                        return msg
-            elif direction == 'out':
-                # 将包含出站黑名单的地址资源组汇总成addrgrps地址资源组列表
-                addrgrps = [data_describe_address_book for data_describe_address_book in
-                            res_describe_address_book['body']['Acls']
-                            if self.BLACKLIST_OUT_GROUP in data_describe_address_book['GroupName']]
-                for addrgrp in addrgrps:
-                    len_addrgrp = len(addrgrp['AddressList'])
-                    data_len_addrgrp = len_addrgrp + 1
-                    # 判断需要封禁的地址资源组内的地址资源是否超过最大上限，如不超过限制，将需要封禁的地址资源更新至地址资源组
-                    if len_addrgrp < self.MAX_ADDRESS_GROUP_SIZE:
-                        addrgrp_groupname = addrgrp['GroupName']
-                        addrgrp_groupuuid = addrgrp['GroupUuid']
-                        addrgrp_description = addrgrp['Description']
-                        list_addrgrp_addresslist = addrgrp['AddressList']
-                        list_addrgrp_addresslist.append(addr_obj)
-                        data_addrgrp_addresslist = ','.join(list_addrgrp_addresslist)
-                        # 将需要封禁的地址资源更新至地址资源组
-                        res_modify_address_book = self.modify_address_book(
-                            groupname=addrgrp_groupname,
-                            groupuuid=addrgrp_groupuuid,
-                            description=addrgrp_description,
-                            addresslist=data_addrgrp_addresslist
-                        )
-                        if res_modify_address_book['statusCode'] == 200:
-                            msg = {
-                                "addr": f"{addr}",
-                                "groupname": f"{addrgrp_groupname}",
-                                "groupuuid": f"{addrgrp_groupuuid}",
-                                "description": f"{addrgrp_description}",
-                                "grouplen": f"{data_len_addrgrp}",
-                                "desc": "封禁成功"
-                            }
-                            logger.info(f'{msg}')
-                            return msg
-                        else:
-                            msg = {
-                                "addr": f"{addr}",
-                                "groupname": f"{addrgrp_groupname}",
-                                "groupuuid": f"{addrgrp_groupuuid}",
-                                "description": f"{addrgrp_description}",
-                                "grouplen": f"{data_len_addrgrp}",
-                                "desc": "封禁失败"
-                            }
-                            logger.info(f'{msg}')
-                            return msg
-                    # 判断需要封禁的地址资源组内的地址资源是否超过最大上限，如超过限制，新建控制策略组，新建地址资源组，将需要封禁的地址资源更新至新建的地址资源组
-                    else:
-                        # 创建地址资源组，将需要封禁的地址资源更新至新至新建的地址资源组
-                        res_add_address_book = self.add_address_book(
-                            groupname=self.BLACKLIST_OUT_GROUP,
-                            grouptype=describe_address_book_grouptype,
-                            description=self.BLACKLIST_OUT_GROUP,
-                            addresslist=addr_obj
-                        )
-                        res_add_address_book_groupname = res_add_address_book['groupname']
-                        res_add_address_book_description = res_add_address_book['description']
-                        res_add_address_book_groupuuid = res_add_address_book['groupuuid']
-                        # 创建控制策略组，将需要封禁的地址资源组更新至新建的控制策略组
-                        res_add_control_policy = self.add_control_policy(
-                            aclaction=self.ACL_ACTION_DROP,
-                            description=res_add_address_book_description,
-                            destination=res_add_address_book_groupname,
-                            destinationtype='group',
-                            direction=direction,
-                            proto='ANY',
-                            source='0.0.0.0/0',
-                            sourcetype='net',
-                            neworder=2,
-                            applicationname='ANY'
-                        )
-                        if res_add_address_book['desc'] == "创建成功" and res_add_control_policy['desc'] == "创建成功":
-                            msg = {
-                                "addr": f"{addr}",
-                                "groupname": f"{res_add_address_book_groupname}",
-                                "groupuuid": f"{res_add_address_book_groupuuid}",
-                                "description": f"{res_add_address_book_description}",
-                                "grouplen": 1,
-                                "desc": "封禁成功"
-                            }
-                            logger.info(f'{msg}')
-                            return msg
-                        else:
-                            msg = {
-                                "addr": f"{addr}",
-                                "groupname": f"{res_add_address_book_groupname}",
-                                "groupuuid": f"{res_add_address_book_groupuuid}",
-                                "description": f"{res_add_address_book_description}",
-                                "grouplen": 1,
-                                "desc": "封禁失败"
-                            }
-                            logger.info(f'{msg}')
-                            return msg
-                
-                # 如果没有找到现有的出站黑名单地址组，创建第一个地址组和控制策略
-                if not addrgrps:
-                    # 创建地址资源组，将需要封禁的地址资源更新至新建的地址资源组
-                    res_add_address_book = self.add_address_book(
-                        groupname=self.BLACKLIST_OUT_GROUP,
-                        grouptype=describe_address_book_grouptype,
-                        description=self.BLACKLIST_OUT_GROUP,
-                        addresslist=addr_obj
-                    )
-                    res_add_address_book_groupname = res_add_address_book['groupname']
-                    res_add_address_book_description = res_add_address_book['description']
-                    res_add_address_book_groupuuid = res_add_address_book['groupuuid']
-                    # 创建控制策略组，将需要封禁的地址资源组更新至新建的控制策略组
-                    res_add_control_policy = self.add_control_policy(
-                        aclaction=self.ACL_ACTION_DROP,
-                        description=res_add_address_book_description,
-                        destination=res_add_address_book_groupname,
-                        destinationtype='group',
-                        direction=direction,
-                        proto='ANY',
-                        source='0.0.0.0/0',
-                        sourcetype='net',
-                        neworder=2,
-                        applicationname='ANY'
-                    )
-                    if res_add_address_book['desc'] == "创建成功" and res_add_control_policy['desc'] == "创建成功":
-                        msg = {
-                            "addr": f"{addr}",
-                            "groupname": f"{res_add_address_book_groupname}",
-                            "groupuuid": f"{res_add_address_book_groupuuid}",
-                            "description": f"{res_add_address_book_description}",
-                            "grouplen": 1,
-                            "desc": "封禁成功"
-                        }
-                        logger.info(f'{msg}')
-                        return msg
-                    else:
-                        msg = {
-                            "addr": f"{addr}",
-                            "groupname": f"{res_add_address_book_groupname}",
-                            "groupuuid": f"{res_add_address_book_groupuuid}",
-                            "description": f"{res_add_address_book_description}",
-                            "grouplen": 1,
-                            "desc": "封禁失败"
-                        }
-                        logger.info(f'{msg}')
-                        return msg
-
-    def single_unblock_address(self, addr, direction=None):
-        # 定义日志配置
-        self.check_os_type()
-        # 判断需要解封的地址资源属于ip类型或net类型或domain类型
-        if self.check_address_type(addr) == "ipv4":
-            addr_obj = f"{addr}/32"
-            describe_address_book_grouptype = "ip"
-        elif self.check_address_type(addr) == "network":
-            addr_obj = f"{addr}"
-            describe_address_book_grouptype = "ip"
-        elif self.check_address_type(addr) == "domain":
-            addr_obj = f"{addr}"
-            describe_address_book_grouptype = "domain"
-        elif self.check_address_type(addr) == "ipv6":
-            msg = {
-                "addr": f"{addr}",
-                "desc": "无需解封"
-            }
-            logger.info(f'{msg}')
-            return msg
-        # 验证direction参数并查询相应的地址资源组
-        if direction == 'in':
-            query_prefix = self.BLACKLIST_IN_GROUP
-        elif direction == 'out':
-            query_prefix = self.BLACKLIST_OUT_GROUP
-        else:
-            # direction参数无效时返回错误信息
-            msg = {
-                "addr": f"{addr}",
-                "desc": "direction参数必须为'in'或'out'"
-            }
-            logger.error(f'{msg}')
-            return msg
+            # 验证direction参数
+            if direction not in ['in', 'out']:
+                return {
+                    "statusCode": 400,
+                    "error": "direction参数必须为'in'或'out'",
+                    "body": {}
+                }
             
-        res_describe_address_book = self.describe_address_book(
-            query=query_prefix,
-            grouptype=describe_address_book_grouptype
-        )
-        # 判断需要解封的地址资源是否已存在于现有封禁策略中，如存在则found赋值为True，如不存在则found赋值为False
-        found = False
-        for list_res_describe_address_book in res_describe_address_book['body']['Acls']:
-            # 需要检查组名，因为query可能是模糊搜索，返回的结果可能包含其他相关组
-            if ((direction == 'in' and self.BLACKLIST_IN_GROUP in list_res_describe_address_book['GroupName']) or
-                (direction == 'out' and self.BLACKLIST_OUT_GROUP in list_res_describe_address_book['GroupName'])):
-                match_list = list_res_describe_address_book['AddressList']
-                if addr_obj in match_list:
-                    found = True
-                    break
-        # 判断需要解封的地址资源是否执行封禁任务，如found值为True，执行解封任务序列
-        if found == True:
-            if direction == "in":
-                # 将包含入站黑名单的地址资源组汇总成addrgrps地址资源组列表
-                addrgrps = [data_describe_address_book for data_describe_address_book in
-                            res_describe_address_book['body']['Acls']
-                            if self.BLACKLIST_IN_GROUP in data_describe_address_book['GroupName'] and addr_obj in
-                            data_describe_address_book['AddressList']]
-                # 构建解封return msg列表
-                list_msg = []
-                for addrgrp in addrgrps:
-                    # 将汇总的addrgrps中的addrgrp内的AddressList从字符串转换成列表，并计算长度
-                    len_addrgrp = len(addrgrp['AddressList'])
-                    data_len_addrgrp = len_addrgrp - 1
-                    # 判断需要解封的地址资源组内的地址资源是否少于1个最小下限，如解封前大于1个地址资源，将包含解封地址资源的资源地址组从封禁策略中去除，删除地址资源
-                    if len_addrgrp > 1:
-                    # if len_addrgrp < 1:
-                        addrgrp_groupname = addrgrp['GroupName']
-                        addrgrp_groupuuid = addrgrp['GroupUuid']
-                        addrgrp_description = addrgrp['Description']
-                        list_addrgrp_addresslist = addrgrp['AddressList']
-                        list_addrgrp_addresslist.remove(addr_obj)
-                        data_addrgrp_addresslist = ','.join(list_addrgrp_addresslist)
-                        # 将需要封禁的地址资源更新至地址资源组
-                        res_modify_address_book = self.modify_address_book(
-                            groupname=addrgrp_groupname,
-                            groupuuid=addrgrp_groupuuid,
-                            description=addrgrp_description,
-                            addresslist=data_addrgrp_addresslist
-                        )
-                        if res_modify_address_book['statusCode'] == 200:
-                            msg = {
-                                "addr": f"{addr}",
-                                "groupname": f"{addrgrp_groupname}",
-                                "groupuuid": f"{addrgrp_groupuuid}",
-                                "description": f"{addrgrp_description}",
-                                "grouplen": f"{data_len_addrgrp}",
-                                "desc": "解封成功"
-                            }
-                            logger.info(f'{msg}')
+            # 解析和验证IP地址列表
+            ips = utils.parse_ip_list(addr)
+            if not ips:
+                return {
+                    "statusCode": 400,
+                    "error": "没有有效的IP地址",
+                    "body": {}
+                }
+            
+            logger.info(f"开始批量封禁 {len(ips)} 个地址，方向: {direction}")
+            
+            # 初始化处理状态变量
+            success_ips = []
+            failed_ips = []
+            skipped_ips = []
+            remaining_ips = list(ips)
+            consecutive_failures = 0
+            
+            # 设置查询前缀和配置
+            group_name_prefix = utils.get_config('add_address_book.group_name_prefix', 'DEV-P-Deny-Secops-Blacklist')
+            query_prefix = f"{group_name_prefix}-{direction.title()}"
+            max_addresses_per_group = utils.get_config('modify_address_book.max_addresses_per_group', 2000)
+            
+            # 主处理循环
+            while remaining_ips:
+                initial_count = len(remaining_ips)
+                logger.info(f"剩余待处理IP数量: {len(remaining_ips)}")
+                
+                # 按地址类型分组处理
+                ip_groups = {"ipv4": [], "network": [], "domain": []}
+                for ip in remaining_ips[:]:
+                    try:
+                        ipaddress.IPv4Address(ip.split('/')[0])
+                        addr_type = "ipv4" if '/' not in ip else "network"
+                    except ipaddress.AddressValueError:
+                        try:
+                            ipaddress.IPv6Address(ip.split('/')[0])
+                            # IPv6直接跳过
+                            skipped_ips.append({
+                                "addr": ip,
+                                "desc": "无需封禁（IPv6）"
+                            })
+                            remaining_ips.remove(ip)
+                            continue
+                        except ipaddress.AddressValueError:
+                            addr_type = "domain"
+                    
+                    ip_groups[addr_type].append(ip)
+                
+                # 处理每种地址类型
+                for addr_type, type_ips in ip_groups.items():
+                    if not type_ips:
+                        continue
+                        
+                    # 获取该类型的现有地址组
+                    grouptype = "ip" if addr_type in ["ipv4", "network"] else "domain"
+                    res_describe_address_book = self.describe_address_book(
+                        query=query_prefix,
+                        grouptype=grouptype
+                    )
+                    
+                    if res_describe_address_book.get('statusCode') != 200:
+                        logger.error(f"查询地址组失败: {res_describe_address_book}")
+                        consecutive_failures += 1
+                        if consecutive_failures >= 3:
+                            break
+                        continue
+                    
+                    existing_groups = res_describe_address_book['body']['Acls']
+                    
+                    # 检查已存在的IP
+                    for ip in type_ips[:]:
+                        addr_obj = f"{ip}/32" if addr_type == "ipv4" and '/' not in ip else ip
+                        found = False
+                        
+                        for group in existing_groups:
+                            if query_prefix in group['GroupName']:
+                                if addr_obj in group['AddressList']:
+                                    found = True
+                                    skipped_ips.append({
+                                        "addr": ip,
+                                        "groupname": group['GroupName'],
+                                        "desc": "无需封禁（已存在）"
+                                    })
+                                    break
+                        
+                        if found:
+                            type_ips.remove(ip)
+                            remaining_ips.remove(ip)
+                    
+                    # 将IP添加到现有组或创建新组
+                    for ip in type_ips[:]:
+                        addr_obj = f"{ip}/32" if addr_type == "ipv4" and '/' not in ip else ip
+                        processed = False
+                        
+                        # 添加到现有组
+                        for group in existing_groups:
+                            if query_prefix in group['GroupName']:
+                                current_size = len(group['AddressList'])
+                                if current_size < max_addresses_per_group:
+                                    # 修改地址组
+                                    new_address_list = group['AddressList'] + [addr_obj]
+                                    new_address_str = ','.join(new_address_list)
+                                    
+                                    res_modify = self.modify_address_book(
+                                        groupname=group['GroupName'],
+                                        groupuuid=group['GroupUuid'],
+                                        description=group['Description'],
+                                        addresslist=new_address_str
+                                    )
+                                    
+                                    if res_modify.get('statusCode') == 200:
+                                        success_ips.append({
+                                            "addr": ip,
+                                            "groupname": group['GroupName'],
+                                            "groupuuid": group['GroupUuid'],
+                                            "grouplen": len(new_address_list),
+                                "desc": "封禁成功"
+                                        })
+                                        group['AddressList'] = new_address_list
+                                        processed = True
+                                        type_ips.remove(ip)
+                                        remaining_ips.remove(ip)
+                                        break
                         else:
-                            msg = {
-                                "addr": f"{addr}",
-                                "groupname": f"{addrgrp_groupname}",
-                                "groupuuid": f"{addrgrp_groupuuid}",
-                                "description": f"{addrgrp_description}",
-                                "grouplen": f"{data_len_addrgrp}",
-                                "desc": "解封失败"
-                            }
-                            logger.info(f'{msg}')
-                        # 将需要解封的地址资源msg汇总至return msg列表
-                        list_msg.append(msg)
-                    # 判断需要解封的地址资源组内的地址资源是否少于1个最小下限，如解封前等于1个地址资源，将包含解封地址资源的控制策略组及资源地址组删除
-                    else:
-                        addrgrp_groupname = addrgrp['GroupName']
-                        addrgrp_groupuuid = addrgrp['GroupUuid']
-                        addrgrp_description = addrgrp['Description']
-                        # 查询所有控制策略组
-                        res_describe_control_policy = self.describe_control_policy(
-                            direction=direction
-                        )
-                        # 将包含入站黑名单且包含需解封地址对象的策略控制组汇总成policygrp控制策略组列表，dict.values()为精确匹配
-                        policygrps = [data_describe_control_policy for data_describe_control_policy in
-                                      res_describe_control_policy['body']['Policys'] if
-                                      addrgrp_groupname in data_describe_control_policy.values()]
-                        # 遍历控制策略列表中的控制策略
-                        for policygrp in policygrps:
-                            policygrp_acluuid = policygrp['AclUuid']
-                            # 删除包含需解封地址资源的策略控制组
-                            res_delete_control_policy = self.delete_control_policy(
-                                acluuid=policygrp_acluuid,
-                                direction=direction
+                                        logger.error(f"修改地址组失败: {res_modify}")
+                        
+                        # 创建新组
+                        if not processed:
+                            # 生成随机后缀
+                            random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+                            new_group_name = f"{query_prefix}-{random_suffix}"
+                            
+                            res_add_address_book = self.add_address_book(
+                                groupname=new_group_name,
+                                grouptype=grouptype,
+                                description=utils.get_config('add_address_book.description', '自动创建的安全封禁地址组'),
+                                addresslist=addr_obj
                             )
-                            # 删除包含需解封地址资源的地址资源组
-                            res_delete_address_book = self.delete_address_book(
-                                groupuuid=addrgrp_groupuuid
-                            )
-                            if res_delete_control_policy['statusCode'] == 200 and res_delete_address_book[
-                                'statusCode'] == 200:
-                                msg = {
-                                    "addr": f"{addr}",
-                                    "groupname": f"{addrgrp_groupname}",
-                                    "groupuuid": f"{addrgrp_groupuuid}",
-                                    "description": f"{addrgrp_description}",
-                                    "ruleid": f"{policygrp_acluuid}",
-                                    "desc": "解封成功"
-                                }
-                                logger.info(f'{msg}')
-                            else:
-                                msg = {
-                                    "addr": f"{addr}",
-                                    "groupname": f"{addrgrp_groupname}",
-                                    "groupuuid": f"{addrgrp_groupuuid}",
-                                    "description": f"{addrgrp_description}",
-                                    "ruleid": f"{policygrp_acluuid}",
-                                    "desc": "解封失败"
-                                }
-                                logger.info(f'{msg}')
-                            # return msg
-                            # 将需要解封的地址资源msg汇总至return msg列表
-                            list_msg.append(msg)
-                logger.info(f'{list_msg}')
-                return list_msg
-            elif direction == "out":
-                # 将包含出站黑名单的地址资源组汇总成addrgrps地址资源组列表
-                addrgrps = [data_describe_address_book for data_describe_address_book in
-                            res_describe_address_book['body']['Acls']
-                            if self.BLACKLIST_OUT_GROUP in data_describe_address_book['GroupName'] and addr_obj in
-                            data_describe_address_book['AddressList']]
-                # 构建解封return msg列表
-                list_msg = []
-                for addrgrp in addrgrps:
-                    # 将汇总的addrgrps中的addrgrp内的AddressList从字符串转换成列表，并计算长度
-                    len_addrgrp = len(addrgrp['AddressList'])
-                    data_len_addrgrp = len_addrgrp - 1
-                    # 判断需要解封的地址资源组内的地址资源是否少于1个最小下限，如解封前大于1个地址资源，将包含解封地址资源的资源地址组从封禁策略中去除，删除地址资源
-                    if len_addrgrp > 1:
-                    # if len_addrgrp < 1:
-                        addrgrp_groupname = addrgrp['GroupName']
-                        addrgrp_groupuuid = addrgrp['GroupUuid']
-                        addrgrp_description = addrgrp['Description']
-                        list_addrgrp_addresslist = addrgrp['AddressList']
-                        list_addrgrp_addresslist.remove(addr_obj)
-                        data_addrgrp_addresslist = ','.join(list_addrgrp_addresslist)
-                        # 将需要封禁的地址资源更新至地址资源组
-                        res_modify_address_book = self.modify_address_book(
-                            groupname=addrgrp_groupname,
-                            groupuuid=addrgrp_groupuuid,
-                            description=addrgrp_description,
-                            addresslist=data_addrgrp_addresslist
-                        )
-                        if res_modify_address_book['statusCode'] == 200:
-                            msg = {
-                                "addr": f"{addr}",
-                                "groupname": f"{addrgrp_groupname}",
-                                "groupuuid": f"{addrgrp_groupuuid}",
-                                "description": f"{addrgrp_description}",
-                                "grouplen": f"{data_len_addrgrp}",
-                                "desc": "解封成功"
-                            }
-                            logger.info(f'{msg}')
+                            
+                            if res_add_address_book.get('desc') == "创建成功":
+                                # 创建控制策略
+                                acl_action = utils.get_config('add_control_policy.acl_action', 'log')
+                                proto = utils.get_config('add_control_policy.proto', 'ANY')
+                                application_name = utils.get_config('add_control_policy.application_name', 'ANY')
+                                new_order = utils.get_config('add_control_policy.new_order', 2)
+                                destination_any = utils.get_config('add_control_policy.destination_any', '0.0.0.0/0')
+                                source_any = utils.get_config('add_control_policy.source_any', '0.0.0.0/0')
+                                
+                                if direction == 'in':
+                                    res_add_control_policy = self.add_control_policy(
+                                        aclaction=acl_action,
+                                        description=res_add_address_book['description'],
+                                        destination=destination_any,
+                                        destinationtype='net',
+                                        direction=direction,
+                                        proto=proto,
+                                        source=res_add_address_book['groupname'],
+                                        sourcetype='group',
+                                        neworder=new_order,
+                                        applicationname=application_name
+                                    )
+                                else:  # direction == 'out'
+                                    res_add_control_policy = self.add_control_policy(
+                                        aclaction=acl_action,
+                                        description=res_add_address_book['description'],
+                                        destination=res_add_address_book['groupname'],
+                                        destinationtype='group',
+                                        direction=direction,
+                                        proto=proto,
+                                        source=source_any,
+                                        sourcetype='net',
+                                        neworder=new_order,
+                                        applicationname=application_name
+                                    )
+                                
+                                if res_add_control_policy.get('desc') == "创建成功":
+                                    success_ips.append({
+                                        "addr": ip,
+                                        "groupname": res_add_address_book['groupname'],
+                                        "groupuuid": res_add_address_book['groupuuid'],
+                                        "policyuuid": res_add_control_policy['acluuid'],
+                                "grouplen": 1,
+                                "desc": "封禁成功"
+                                    })
+                                    
+                                    # 添加到现有组列表以供后续使用
+                                    new_group = {
+                                        'GroupName': res_add_address_book['groupname'],
+                                        'GroupUuid': res_add_address_book['groupuuid'],
+                                        'Description': res_add_address_book['description'],
+                                        'AddressList': [addr_obj]
+                                    }
+                                    existing_groups.append(new_group)
+                                    
+                                    type_ips.remove(ip)
+                                    remaining_ips.remove(ip)
+                                else:
+                                    failed_ips.append({
+                                        "addr": ip,
+                                        "desc": "创建控制策略失败"
+                                    })
+                                    type_ips.remove(ip)
+                                    remaining_ips.remove(ip)
                         else:
-                            msg = {
-                                "addr": f"{addr}",
-                                "groupname": f"{addrgrp_groupname}",
-                                "groupuuid": f"{addrgrp_groupuuid}",
-                                "description": f"{addrgrp_description}",
-                                "grouplen": f"{data_len_addrgrp}",
-                                "desc": "解封失败"
-                            }
-                            logger.info(f'{msg}')
-                        # 将需要解封的地址资源msg汇总至return msg列表
-                        list_msg.append(msg)
-                    # 判断需要解封的地址资源组内的地址资源是否少于1个最小下限，如解封前等于1个地址资源，将包含解封地址资源的控制策略组及资源地址组删除
-                    else:
-                        addrgrp_groupname = addrgrp['GroupName']
-                        addrgrp_groupuuid = addrgrp['GroupUuid']
-                        addrgrp_description = addrgrp['Description']
-                        # 查询所有控制策略组
-                        res_describe_control_policy = self.describe_control_policy(
-                            direction=direction
-                        )
-                        # 将包含出站黑名单且包含需解封地址对象的策略控制组汇总成policygrp控制策略组列表，dict.values()为精确匹配
-                        policygrps = [data_describe_control_policy for data_describe_control_policy in
-                                      res_describe_control_policy['body']['Policys'] if
-                                      addrgrp_groupname in data_describe_control_policy.values()]
-                        # 遍历控制策略列表中的控制策略
-                        for policygrp in policygrps:
-                            policygrp_acluuid = policygrp['AclUuid']
-                            # 删除包含需解封地址资源的策略控制组
-                            res_delete_control_policy = self.delete_control_policy(
-                                acluuid=policygrp_acluuid,
-                                direction=direction
-                            )
-                            # 删除包含需解封地址资源的地址资源组
-                            res_delete_address_book = self.delete_address_book(
-                                groupuuid=addrgrp_groupuuid
-                            )
-                            if res_delete_control_policy['statusCode'] == 200 and res_delete_address_book[
-                                'statusCode'] == 200:
-                                msg = {
-                                    "addr": f"{addr}",
-                                    "groupname": f"{addrgrp_groupname}",
-                                    "groupuuid": f"{addrgrp_groupuuid}",
-                                    "description": f"{addrgrp_description}",
-                                    "ruleid": f"{policygrp_acluuid}",
-                                    "desc": "解封成功"
-                                }
-                                logger.info(f'{msg}')
-                            else:
-                                msg = {
-                                    "addr": f"{addr}",
-                                    "groupname": f"{addrgrp_groupname}",
-                                    "groupuuid": f"{addrgrp_groupuuid}",
-                                    "description": f"{addrgrp_description}",
-                                    "ruleid": f"{policygrp_acluuid}",
-                                    "desc": "解封失败"
-                                }
-                                logger.info(f'{msg}')
-                            # 将需要解封的地址资源msg汇总至return msg列表
-                            list_msg.append(msg)
-                logger.info(f'{list_msg}')
-                return list_msg
-        # 判断需要封禁的地址资源是否执行封禁任务，如found值为False，返回msg无需解封
-        elif found == False:
-            msg = {
-                "addr": f"{addr}",
-                "desc": "无需解封"
-            }
-            return msg
-
-    def hw_block_address(self, direction):
-        with open(f'{os.path.dirname(__file__)}/block.txt', 'r') as block, open(f'{os.path.dirname(__file__)}/white.txt', 'r') as white:
-            block_ips = block.read().splitlines()
-            white_ips = white.read().splitlines()
-            filter_ips = []
-            for addr in block_ips:
-                if any(self.filter_check(addr, network) for network in white_ips):
-                    logger.remove()
-                    logger.add(f'{os.path.dirname(__file__)}/filter_ips.log', rotation='500MB')
-                    logger.info(f"白名单地址，无需封禁：{addr}")
+                                failed_ips.append({
+                                    "addr": ip,
+                                    "desc": "创建地址组失败"
+                                })
+                                type_ips.remove(ip)
+                                remaining_ips.remove(ip)
+                
+                # 检查处理进展
+                if len(remaining_ips) == initial_count:
+                    consecutive_failures += 1
+                    logger.warning(f"本轮未处理任何IP，连续失败次数: {consecutive_failures}")
+                    
+                    if consecutive_failures >= 3:
+                        logger.error("连续3轮未能处理任何IP，停止处理")
+                        for ip in remaining_ips:
+                            failed_ips.append({
+                                "addr": ip,
+                                "desc": "处理失败（达到最大重试次数）"
+                            })
+                        break
                 else:
-                    filter_ips.append(addr)
-            with open(f'{os.path.dirname(__file__)}/block.txt', 'w') as block:
-                block.write('\n'.join(filter_ips))
-        with open(f'{os.path.dirname(__file__)}/block.txt', 'r') as block:
-            block_ips = block.read().splitlines()
-            for addr in block_ips:
-                res = self.single_block_address(addr, direction=direction)
-                if res['desc'] == "无需封禁":
-                    logger.remove()
-                    logger.add(f'{os.path.dirname(__file__)}/hw.log', rotation='500MB')
-                    logger.info(f"无需封禁：{addr}")
-                elif res['desc'] == "封禁成功":
-                    with open(f'{os.path.dirname(__file__)}/bak.log', 'a') as bak:
-                        bak_content = res['addr'].split('/')[0]
-                        bak.write('\n' + bak_content)
-                    logger.remove()
-                    logger.add(f'{os.path.dirname(__file__)}/hw.log', rotation='500MB')
-                    logger.info(f"封禁成功：{addr}")
-                elif res['desc'] == "封禁失败":
-                    logger.remove()
-                    logger.add(f'{os.path.dirname(__file__)}/hw.log', rotation='500MB')
-                    logger.info(f"封禁失败：{addr}")
-            msg = {
-                "desc": "护网封禁任务执行完毕"
+                    consecutive_failures = 0
+            
+            # 生成处理结果
+            result = {
+                "statusCode": 200,
+                "body": {
+                    "success_ips": success_ips,
+                    "failed_ips": failed_ips,
+                    "skipped_ips": skipped_ips,
+                    "summary": {
+                        "total_ips": len(ips),
+                        "success_count": len(success_ips),
+                        "failed_count": len(failed_ips),
+                        "skipped_count": len(skipped_ips)
+                    }
+                }
             }
-            return msg
+            
+            logger.info(f"批量封禁完成 - 总数:{len(ips)}, 成功:{len(success_ips)}, 失败:{len(failed_ips)}, 跳过:{len(skipped_ips)}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"批量封禁异常: {str(e)}")
+            return {
+                "statusCode": 500,
+                "error": f"批量封禁异常: {str(e)}",
+                "body": {}
+            }
 
-    def hw_block_check(self, query, grouptype):
-        res_describe_address_book = self.describe_address_book(query, grouptype)
-        acls = res_describe_address_book['body']['Acls']
-        list_describe_address_book_addresslist = [ip for acl in acls for ip in acl['AddressList']]
-        with open(f'{os.path.dirname(__file__)}/check_ips.log', 'w') as check_ips:
-            for ips in list_describe_address_book_addresslist:
-                check_ips.write(ips + '\n')
-        with open(f'{os.path.dirname(__file__)}/check_ips.log', 'r') as check_ips:
-            check_ips = check_ips.readlines()
-        with open(f'{os.path.dirname(__file__)}/check_ips_output.log', 'w') as check_ips_output:
-            for ips in check_ips:
-                ips = ips.replace('"', '').replace('/32', '').replace(' ', '').replace(',', '').replace('\n', '')
-                check_ips_output.write(ips + '\n')
-        with open(f'{os.path.dirname(__file__)}/check_ips_output.log', 'r') as check_ips_output, open(
-                f'{os.path.dirname(__file__)}/bak.log', 'r') as bak:
-            check_ips = set(ip.replace('"', '').replace('/32', '').replace(' ', '').replace(',', '').replace('\n', '') for ip in check_ips_output)
-            bak_ips = set(ip.replace('"', '').replace('/32', '').replace(' ', '').replace(',', '').replace('\n', '') for ip in bak)
-        new_ips = check_ips - bak_ips
-        with open(f'{os.path.dirname(__file__)}/check_ips_output.log', 'w') as check_ips_output:
-            for ips in new_ips:
-                check_ips_output.write(ips + '\n')
-        msg = {
-            "desc": "护网封禁任务校验完毕"
-        }
-        return msg
+    def auto_unblock_task(self, addr, direction=None):
+        """批量解封IP地址"""
+        try:
+            utils.check_os_type()
+            
+            # 验证direction参数
+            if direction not in ['in', 'out']:
+                return {
+                    "statusCode": 400,
+                    "error": "direction参数必须为'in'或'out'",
+                    "body": {}
+                }
+            
+            # 解析和验证IP地址列表
+            ips = utils.parse_ip_list(addr)
+            if not ips:
+                return {
+                    "statusCode": 400,
+                    "error": "没有有效的IP地址",
+                    "body": {}
+                }
+            
+            logger.info(f"开始批量解封 {len(ips)} 个地址，方向: {direction}")
+            
+            # 初始化处理状态变量
+            success_ips = []
+            failed_ips = []
+            
+            # 设置查询前缀
+            group_name_prefix = utils.get_config('add_address_book.group_name_prefix', 'DEV-P-Deny-Secops-Blacklist')
+            query_prefix = f"{group_name_prefix}-{direction.title()}"
+            
+            # 按地址类型分组处理
+            for ip in ips:
+                try:
+                    ipaddress.IPv4Address(ip.split('/')[0])
+                    addr_type = "ipv4" if '/' not in ip else "network"
+                    grouptype = "ip"
+                except ipaddress.AddressValueError:
+                    try:
+                        ipaddress.IPv6Address(ip.split('/')[0])
+                        # IPv6直接跳过
+                        continue
+                    except ipaddress.AddressValueError:
+                        addr_type = "domain"
+                        grouptype = "domain"
+                
+                # 获取该类型的现有地址组
+                res_describe_address_book = self.describe_address_book(
+                    query=query_prefix,
+                    grouptype=grouptype
+                )
+                
+                if res_describe_address_book.get('statusCode') != 200:
+                    logger.error(f"查询地址组失败: {res_describe_address_book}")
+                    failed_ips.append({
+                        "addr": ip,
+                        "desc": "查询地址组失败"
+                    })
+                    continue
+                
+                existing_groups = res_describe_address_book['body']['Acls']
+                addr_obj = f"{ip}/32" if addr_type == "ipv4" and '/' not in ip else ip
+                found_and_removed = False
+                
+                # 在所有相关组中查找并移除IP
+                for group in existing_groups:
+                    if query_prefix in group['GroupName'] and addr_obj in group['AddressList']:
+                        # 从地址列表中移除该IP
+                        new_address_list = [addr for addr in group['AddressList'] if not utils.ip_matches(addr, addr_obj)]
+                        
+                        if len(new_address_list) == 0:
+                            # 删除空组和相关策略
+                            # 先查找相关的控制策略
+                            res_describe_control_policy = self.describe_control_policy(direction)
+                            if res_describe_control_policy.get('statusCode') == 200:
+                                policies = res_describe_control_policy['body']['Policys']
+                                for policy in policies:
+                                    if ((direction == 'in' and policy.get('Source') == group['GroupName']) or
+                                        (direction == 'out' and policy.get('Destination') == group['GroupName'])):
+                                        policy_uuid = policy.get('AclUuid')
+                                        if policy_uuid:
+                                            res_delete_policy = self.delete_control_policy(policy_uuid, direction)
+                                            if res_delete_policy.get('statusCode') == 200:
+                                                logger.info(f"成功删除控制策略: {policy_uuid}")
+                                        else:
+                                            logger.error(f"删除控制策略失败: {policy_uuid}")
+                            
+                            # 删除地址组
+                            res_delete_group = self.delete_address_book(group['GroupUuid'])
+                            if res_delete_group.get('statusCode') == 200:
+                                success_ips.append({
+                                    "addr": ip,
+                                    "groupname": group['GroupName'],
+                                    "groupuuid": group['GroupUuid'],
+                                    "desc": "解封成功（删除组）"
+                                })
+                                found_and_removed = True
+                            else:
+                                logger.error(f"删除地址组失败: {group['GroupName']}")
+                                failed_ips.append({
+                                    "addr": ip,
+                                    "desc": "删除地址组失败"
+                                })
+                        else:
+                            # 更新组
+                            new_address_str = ','.join(new_address_list)
+                            res_modify = self.modify_address_book(
+                                groupname=group['GroupName'],
+                                groupuuid=group['GroupUuid'],
+                                description=group['Description'],
+                                addresslist=new_address_str
+                            )
+                            
+                            if res_modify.get('statusCode') == 200:
+                                success_ips.append({
+                                    "addr": ip,
+                                    "groupname": group['GroupName'],
+                                    "groupuuid": group['GroupUuid'],
+                                    "grouplen": len(new_address_list),
+                                    "desc": "解封成功"
+                                })
+                                found_and_removed = True
+                            else:
+                                logger.error(f"更新组失败: {group['GroupName']}")
+                                failed_ips.append({
+                                    "addr": ip,
+                                    "desc": "更新地址组失败"
+                                })
+                        break
+                
+                if not found_and_removed:
+                    failed_ips.append({
+                        "addr": ip,
+                        "desc": "未找到该IP或移除失败"
+                    })
+            
+            # 生成处理结果
+            result = {
+                "statusCode": 200,
+                "body": {
+                    "success_ips": success_ips,
+                    "failed_ips": failed_ips,
+                    "summary": {
+                        "total_ips": len(ips),
+                        "success_count": len(success_ips),
+                        "failed_count": len(failed_ips)
+                    }
+                }
+            }
+            
+            logger.info(f"批量解封完成 - 总数:{len(ips)}, 成功:{len(success_ips)}, 失败:{len(failed_ips)}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"批量解封异常: {str(e)}")
+            return {
+                "statusCode": 500,
+                "error": f"批量解封异常: {str(e)}",
+                "body": {}
+            }
