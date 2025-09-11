@@ -243,7 +243,9 @@ class FwAliyunApp:
                                 "desc": "无需封禁（IPv6）"
                             })
                             if ip in remaining_ips:
-                                remaining_ips.remove(ip)
+                                        if ip in remaining_ips:
+                                            if ip in remaining_ips:
+                                        remaining_ips.remove(ip)
                             continue
                         except ipaddress.AddressValueError:
                             addr_type = "domain"
@@ -262,7 +264,7 @@ class FwAliyunApp:
                         grouptype=grouptype
                     )
                     
-                    if res_describe_address_book.get('statusCode') != 200:
+                    if isinstance(res_describe_address_book, str) or res_describe_address_book.get('statusCode') != 200:
                         logger.error(f"查询地址组失败: {res_describe_address_book}")
                         consecutive_failures += 1
                         if consecutive_failures >= 3:
@@ -289,9 +291,13 @@ class FwAliyunApp:
                         
                         if found:
                             if ip in type_ips:
-                                type_ips.remove(ip)
+                                        if ip in type_ips:
+                                            if ip in type_ips:
+                                        type_ips.remove(ip)
                             if ip in remaining_ips:
-                                remaining_ips.remove(ip)
+                                        if ip in remaining_ips:
+                                            if ip in remaining_ips:
+                                        remaining_ips.remove(ip)
                     
                     # 将IP添加到现有组或创建新组
                     for ip in type_ips[:]:
@@ -315,31 +321,24 @@ class FwAliyunApp:
                                     )
                                     
                                     if not isinstance(res_modify, str) and res_modify.get('statusCode') == 200:
-                                        # 原子操作：先更新所有状态，再添加到结果列表
-                                        try:
-                                            # 更新组信息
-                                            group['AddressList'] = new_address_list
-                                            
-                                            # 从处理列表中移除
+                                        success_ips.append({
+                                            "addr": ip,
+                                            "groupname": group['GroupName'],
+                                            "groupuuid": group['GroupUuid'],
+                                            "grouplen": len(new_address_list),
+                                "desc": "封禁成功"
+                                        })
+                                        group['AddressList'] = new_address_list
+                                        processed = True
+                                        if ip in type_ips:
+                                        if ip in type_ips:
                                             if ip in type_ips:
-                                                type_ips.remove(ip)
+                                        type_ips.remove(ip)
+                                        if ip in remaining_ips:
+                                        if ip in remaining_ips:
                                             if ip in remaining_ips:
-                                                remaining_ips.remove(ip)
-                                            
-                                            # 只有在所有操作成功后才添加到成功列表
-                                            success_ips.append({
-                                                "addr": ip,
-                                                "groupname": group['GroupName'],
-                                                "groupuuid": group['GroupUuid'],
-                                                "grouplen": len(new_address_list),
-                                                "desc": "封禁成功"
-                                            })
-                                            
-                                            processed = True
-                                            break
-                                        except Exception as cleanup_error:
-                                            logger.error(f"清理IP状态时发生异常: {cleanup_error}")
-                                            # 如果清理失败，不标记为processed，让后续逻辑处理
+                                        remaining_ips.remove(ip)
+                                        break
                                     else:
                                         logger.error(f"修改地址组失败: {res_modify}")
                         
@@ -356,7 +355,7 @@ class FwAliyunApp:
                                 addresslist=addr_obj
                             )
                             
-                            if res_add_address_book.get('desc') == "创建成功":
+                            if not isinstance(res_add_address_book, str) and res_add_address_book.get('desc') == "创建成功":
                                 # 创建控制策略
                                 acl_action = utils.get_config('add_control_policy.acl_action', 'log')
                                 proto = utils.get_config('add_control_policy.proto', 'ANY')
@@ -392,68 +391,59 @@ class FwAliyunApp:
                                         applicationname=application_name
                                     )
                                 
-                                if res_add_control_policy.get('desc') == "创建成功":
-                                    # 原子操作：先更新所有状态，再添加到结果列表
-                                    try:
-                                        # 添加到现有组列表以供后续使用
-                                        new_group = {
-                                            'GroupName': res_add_address_book['groupname'],
-                                            'GroupUuid': res_add_address_book['groupuuid'],
-                                            'Description': res_add_address_book['description'],
-                                            'AddressList': [addr_obj]
-                                        }
-                                        existing_groups.append(new_group)
-                                        
-                                        # 从处理列表中移除
+                                if not isinstance(res_add_control_policy, str) and res_add_control_policy.get('desc') == "创建成功":
+                                    success_ips.append({
+                                        "addr": ip,
+                                        "groupname": res_add_address_book['groupname'],
+                                        "groupuuid": res_add_address_book['groupuuid'],
+                                        "policyuuid": res_add_control_policy['acluuid'],
+                                "grouplen": 1,
+                                "desc": "封禁成功"
+                                    })
+                                    
+                                    # 添加到现有组列表以供后续使用
+                                    new_group = {
+                                        'GroupName': res_add_address_book['groupname'],
+                                        'GroupUuid': res_add_address_book['groupuuid'],
+                                        'Description': res_add_address_book['description'],
+                                        'AddressList': [addr_obj]
+                                    }
+                                    existing_groups.append(new_group)
+                                    
+                                    if ip in type_ips:
                                         if ip in type_ips:
-                                            type_ips.remove(ip)
+                                            if ip in type_ips:
+                                        type_ips.remove(ip)
+                                    if ip in remaining_ips:
                                         if ip in remaining_ips:
-                                            remaining_ips.remove(ip)
-                                        
-                                        # 只有在所有操作成功后才添加到成功列表
-                                        success_ips.append({
-                                            "addr": ip,
-                                            "groupname": res_add_address_book['groupname'],
-                                            "groupuuid": res_add_address_book['groupuuid'],
-                                            "policyuuid": res_add_control_policy['acluuid'],
-                                            "grouplen": 1,
-                                            "desc": "封禁成功"
-                                        })
-                                    except Exception as cleanup_error:
-                                        logger.error(f"创建新组后清理IP状态时发生异常: {cleanup_error}")
-                                        # 如果清理失败，将IP添加到失败列表
-                                        failed_ips.append({
-                                            "addr": ip,
-                                            "desc": "状态清理失败"
-                                        })
+                                            if ip in remaining_ips:
+                                        remaining_ips.remove(ip)
                                 else:
-                                    # 原子操作：先清理状态，再添加到失败列表
-                                    try:
+                                    failed_ips.append({
+                                        "addr": ip,
+                                        "desc": "创建控制策略失败"
+                                    })
+                                    if ip in type_ips:
                                         if ip in type_ips:
-                                            type_ips.remove(ip)
+                                            if ip in type_ips:
+                                        type_ips.remove(ip)
+                                    if ip in remaining_ips:
                                         if ip in remaining_ips:
-                                            remaining_ips.remove(ip)
-                                        
-                                        failed_ips.append({
-                                            "addr": ip,
-                                            "desc": "创建控制策略失败"
-                                        })
-                                    except Exception as cleanup_error:
-                                        logger.error(f"处理失败IP时清理状态发生异常: {cleanup_error}")
+                                            if ip in remaining_ips:
+                                        remaining_ips.remove(ip)
                         else:
-                            # 原子操作：先清理状态，再添加到失败列表
-                            try:
-                                if ip in type_ips:
-                                    type_ips.remove(ip)
-                                if ip in remaining_ips:
-                                    remaining_ips.remove(ip)
-                                
                                 failed_ips.append({
                                     "addr": ip,
                                     "desc": "创建地址组失败"
                                 })
-                            except Exception as cleanup_error:
-                                logger.error(f"处理创建地址组失败时清理状态发生异常: {cleanup_error}")
+                                if ip in type_ips:
+                                        if ip in type_ips:
+                                            if ip in type_ips:
+                                        type_ips.remove(ip)
+                                if ip in remaining_ips:
+                                        if ip in remaining_ips:
+                                            if ip in remaining_ips:
+                                        remaining_ips.remove(ip)
                 
                 # 检查处理进展
                 if len(remaining_ips) == initial_count:
@@ -551,7 +541,7 @@ class FwAliyunApp:
                     grouptype=grouptype
                 )
                 
-                if res_describe_address_book.get('statusCode') != 200:
+                if isinstance(res_describe_address_book, str) or res_describe_address_book.get('statusCode') != 200:
                     logger.error(f"查询地址组失败: {res_describe_address_book}")
                     failed_ips.append({
                         "addr": ip,
@@ -573,7 +563,7 @@ class FwAliyunApp:
                             # 删除空组和相关策略
                             # 先查找相关的控制策略
                             res_describe_control_policy = self.describe_control_policy(direction)
-                            if res_describe_control_policy.get('statusCode') == 200:
+                            if not isinstance(res_describe_control_policy, str) and res_describe_control_policy.get('statusCode') == 200:
                                 policies = res_describe_control_policy['body']['Policys']
                                 for policy in policies:
                                     if ((direction == 'in' and policy.get('Source') == group['GroupName']) or
@@ -581,14 +571,14 @@ class FwAliyunApp:
                                         policy_uuid = policy.get('AclUuid')
                                         if policy_uuid:
                                             res_delete_policy = self.delete_control_policy(policy_uuid, direction)
-                                            if res_delete_policy.get('statusCode') == 200:
+                                            if not isinstance(res_delete_policy, str) and res_delete_policy.get('statusCode') == 200:
                                                 logger.info(f"成功删除控制策略: {policy_uuid}")
                                         else:
                                             logger.error(f"删除控制策略失败: {policy_uuid}")
                             
                             # 删除地址组
                             res_delete_group = self.delete_address_book(group['GroupUuid'])
-                            if res_delete_group.get('statusCode') == 200:
+                            if not isinstance(res_delete_group, str) and res_delete_group.get('statusCode') == 200:
                                 success_ips.append({
                                     "addr": ip,
                                     "groupname": group['GroupName'],
@@ -612,7 +602,7 @@ class FwAliyunApp:
                                 addresslist=new_address_str
                             )
                             
-                            if res_modify.get('statusCode') == 200:
+                            if not isinstance(res_modify, str) and res_modify.get('statusCode') == 200:
                                 success_ips.append({
                                     "addr": ip,
                                     "groupname": group['GroupName'],
