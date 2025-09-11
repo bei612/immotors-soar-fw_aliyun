@@ -5,7 +5,10 @@ from alibabacloud_cloudfw20171207 import models as cloudfw_20171207_models
 from alibabacloud_tea_util import models as util_models
 from alibabacloud_tea_util.client import Client as UtilClient
 from loguru import logger
-from apps.fw_aliyun import utils
+try:
+    from apps.fw_aliyun import utils
+except ImportError:
+    import utils
 import os
 import ipaddress
 import random
@@ -13,7 +16,7 @@ import string
 
 class FwAliyunApp:
     
-    def __init__(self, ak, sk, endpoint, proxies):
+    def __init__(self, ak, sk, endpoint, proxies=None):
         self.ak = ak
         self.sk = sk
         self.endpoint = endpoint
@@ -258,7 +261,7 @@ class FwAliyunApp:
                         grouptype=grouptype
                     )
                     
-                    if res_describe_address_book.get('statusCode') != 200:
+                    if isinstance(res_describe_address_book, str) or res_describe_address_book.get('statusCode') != 200:
                         logger.error(f"查询地址组失败: {res_describe_address_book}")
                         consecutive_failures += 1
                         if consecutive_failures >= 3:
@@ -308,7 +311,7 @@ class FwAliyunApp:
                                         addresslist=new_address_str
                                     )
                                     
-                                    if res_modify.get('statusCode') == 200:
+                                    if not isinstance(res_modify, str) and res_modify.get('statusCode') == 200:
                                         success_ips.append({
                                             "addr": ip,
                                             "groupname": group['GroupName'],
@@ -321,7 +324,7 @@ class FwAliyunApp:
                                         type_ips.remove(ip)
                                         remaining_ips.remove(ip)
                                         break
-                        else:
+                                    else:
                                         logger.error(f"修改地址组失败: {res_modify}")
                         
                         # 创建新组
@@ -337,7 +340,7 @@ class FwAliyunApp:
                                 addresslist=addr_obj
                             )
                             
-                            if res_add_address_book.get('desc') == "创建成功":
+                            if not isinstance(res_add_address_book, str) and res_add_address_book.get('desc') == "创建成功":
                                 # 创建控制策略
                                 acl_action = utils.get_config('add_control_policy.acl_action', 'log')
                                 proto = utils.get_config('add_control_policy.proto', 'ANY')
@@ -373,7 +376,7 @@ class FwAliyunApp:
                                         applicationname=application_name
                                     )
                                 
-                                if res_add_control_policy.get('desc') == "创建成功":
+                                if not isinstance(res_add_control_policy, str) and res_add_control_policy.get('desc') == "创建成功":
                                     success_ips.append({
                                         "addr": ip,
                                         "groupname": res_add_address_book['groupname'],
@@ -505,7 +508,7 @@ class FwAliyunApp:
                     grouptype=grouptype
                 )
                 
-                if res_describe_address_book.get('statusCode') != 200:
+                if isinstance(res_describe_address_book, str) or res_describe_address_book.get('statusCode') != 200:
                     logger.error(f"查询地址组失败: {res_describe_address_book}")
                     failed_ips.append({
                         "addr": ip,
@@ -527,7 +530,7 @@ class FwAliyunApp:
                             # 删除空组和相关策略
                             # 先查找相关的控制策略
                             res_describe_control_policy = self.describe_control_policy(direction)
-                            if res_describe_control_policy.get('statusCode') == 200:
+                            if not isinstance(res_describe_control_policy, str) and res_describe_control_policy.get('statusCode') == 200:
                                 policies = res_describe_control_policy['body']['Policys']
                                 for policy in policies:
                                     if ((direction == 'in' and policy.get('Source') == group['GroupName']) or
@@ -535,14 +538,14 @@ class FwAliyunApp:
                                         policy_uuid = policy.get('AclUuid')
                                         if policy_uuid:
                                             res_delete_policy = self.delete_control_policy(policy_uuid, direction)
-                                            if res_delete_policy.get('statusCode') == 200:
+                                            if not isinstance(res_delete_policy, str) and res_delete_policy.get('statusCode') == 200:
                                                 logger.info(f"成功删除控制策略: {policy_uuid}")
                                         else:
                                             logger.error(f"删除控制策略失败: {policy_uuid}")
                             
                             # 删除地址组
                             res_delete_group = self.delete_address_book(group['GroupUuid'])
-                            if res_delete_group.get('statusCode') == 200:
+                            if not isinstance(res_delete_group, str) and res_delete_group.get('statusCode') == 200:
                                 success_ips.append({
                                     "addr": ip,
                                     "groupname": group['GroupName'],
@@ -566,7 +569,7 @@ class FwAliyunApp:
                                 addresslist=new_address_str
                             )
                             
-                            if res_modify.get('statusCode') == 200:
+                            if not isinstance(res_modify, str) and res_modify.get('statusCode') == 200:
                                 success_ips.append({
                                     "addr": ip,
                                     "groupname": group['GroupName'],
