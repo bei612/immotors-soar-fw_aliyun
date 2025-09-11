@@ -350,7 +350,7 @@ class FwAliyunApp:
                                     else:
                                         logger.error(f"修改地址组失败: {res_modify}")
                         
-                        # 创建新组
+                        # 创建新组 - 只有在未处理的情况下才执行
                         logger.debug(f"IP {ip} processed标志: {processed}")
                         if not processed:
                             # 生成随机后缀
@@ -450,6 +450,7 @@ class FwAliyunApp:
                                         logger.error(f"处理失败IP时清理状态发生异常: {cleanup_error}")
                         else:
                             # 原子操作：先清理状态，再添加到失败列表
+                            logger.debug(f"IP {ip} 创建地址组失败，准备添加到失败列表")
                             try:
                                 if ip in type_ips:
                                     type_ips.remove(ip)
@@ -460,6 +461,7 @@ class FwAliyunApp:
                                     "addr": ip,
                                     "desc": "创建地址组失败"
                                 })
+                                logger.debug(f"IP {ip} 已添加到失败列表")
                             except Exception as cleanup_error:
                                 logger.error(f"处理创建地址组失败时清理状态发生异常: {cleanup_error}")
                 
