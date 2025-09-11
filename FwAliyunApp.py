@@ -551,7 +551,7 @@ class FwAliyunApp:
                     grouptype=grouptype
                 )
                 
-                if res_describe_address_book.get('statusCode') != 200:
+                if isinstance(res_describe_address_book, str) or res_describe_address_book.get('statusCode') != 200:
                     logger.error(f"查询地址组失败: {res_describe_address_book}")
                     failed_ips.append({
                         "addr": ip,
@@ -573,7 +573,7 @@ class FwAliyunApp:
                             # 删除空组和相关策略
                             # 先查找相关的控制策略
                             res_describe_control_policy = self.describe_control_policy(direction)
-                            if res_describe_control_policy.get('statusCode') == 200:
+                            if not isinstance(res_describe_control_policy, str) and res_describe_control_policy.get('statusCode') == 200:
                                 policies = res_describe_control_policy['body']['Policys']
                                 for policy in policies:
                                     if ((direction == 'in' and policy.get('Source') == group['GroupName']) or
@@ -581,27 +581,39 @@ class FwAliyunApp:
                                         policy_uuid = policy.get('AclUuid')
                                         if policy_uuid:
                                             res_delete_policy = self.delete_control_policy(policy_uuid, direction)
-                                            if res_delete_policy.get('statusCode') == 200:
+                                            if not isinstance(res_delete_policy, str) and res_delete_policy.get('statusCode') == 200:
                                                 logger.info(f"成功删除控制策略: {policy_uuid}")
                                         else:
                                             logger.error(f"删除控制策略失败: {policy_uuid}")
                             
                             # 删除地址组
                             res_delete_group = self.delete_address_book(group['GroupUuid'])
-                            if res_delete_group.get('statusCode') == 200:
-                                success_ips.append({
-                                    "addr": ip,
-                                    "groupname": group['GroupName'],
-                                    "groupuuid": group['GroupUuid'],
-                                    "desc": "解封成功（删除组）"
-                                })
-                                found_and_removed = True
+                            if not isinstance(res_delete_group, str) and res_delete_group.get('statusCode') == 200:
+                                # 原子操作：确保状态一致性
+                                try:
+                                    success_ips.append({
+                                        "addr": ip,
+                                        "groupname": group['GroupName'],
+                                        "groupuuid": group['GroupUuid'],
+                                        "desc": "解封成功（删除组）"
+                                    })
+                                    found_and_removed = True
+                                except Exception as update_error:
+                                    logger.error(f"更新删除组成功状态时发生异常: {update_error}")
+                                    failed_ips.append({
+                                        "addr": ip,
+                                        "desc": "状态更新失败"
+                                    })
                             else:
-                                logger.error(f"删除地址组失败: {group['GroupName']}")
-                                failed_ips.append({
-                                    "addr": ip,
-                                    "desc": "删除地址组失败"
-                                })
+                                # 原子操作：确保状态一致性
+                                try:
+                                    logger.error(f"删除地址组失败: {group['GroupName']}")
+                                    failed_ips.append({
+                                        "addr": ip,
+                                        "desc": "删除地址组失败"
+                                    })
+                                except Exception as update_error:
+                                    logger.error(f"更新删除组失败状态时发生异常: {update_error}")
                         else:
                             # 更新组
                             new_address_str = ','.join(new_address_list)
@@ -612,28 +624,44 @@ class FwAliyunApp:
                                 addresslist=new_address_str
                             )
                             
-                            if res_modify.get('statusCode') == 200:
-                                success_ips.append({
-                                    "addr": ip,
-                                    "groupname": group['GroupName'],
-                                    "groupuuid": group['GroupUuid'],
-                                    "grouplen": len(new_address_list),
-                                    "desc": "解封成功"
-                                })
-                                found_and_removed = True
+                            if not isinstance(res_modify, str) and res_modify.get('statusCode') == 200:
+                                # 原子操作：确保状态一致性
+                                try:
+                                    success_ips.append({
+                                        "addr": ip,
+                                        "groupname": group['GroupName'],
+                                        "groupuuid": group['GroupUuid'],
+                                        "grouplen": len(new_address_list),
+                                        "desc": "解封成功"
+                                    })
+                                    found_and_removed = True
+                                except Exception as update_error:
+                                    logger.error(f"更新解封成功状态时发生异常: {update_error}")
+                                    failed_ips.append({
+                                        "addr": ip,
+                                        "desc": "状态更新失败"
+                                    })
                             else:
-                                logger.error(f"更新组失败: {group['GroupName']}")
-                                failed_ips.append({
-                                    "addr": ip,
-                                    "desc": "更新地址组失败"
-                                })
+                                # 原子操作：确保状态一致性
+                                try:
+                                    logger.error(f"更新组失败: {group['GroupName']}")
+                                    failed_ips.append({
+                                        "addr": ip,
+                                        "desc": "更新地址组失败"
+                                    })
+                                except Exception as update_error:
+                                    logger.error(f"更新解封失败状态时发生异常: {update_error}")
                         break
                 
                 if not found_and_removed:
-                    failed_ips.append({
-                        "addr": ip,
-                        "desc": "未找到该IP或移除失败"
-                    })
+                    # 原子操作：确保状态一致性
+                    try:
+                        failed_ips.append({
+                            "addr": ip,
+                            "desc": "未找到该IP或移除失败"
+                        })
+                    except Exception as update_error:
+                        logger.error(f"更新未找到IP状态时发生异常: {update_error}")
             
             # 生成处理结果
             result = {
