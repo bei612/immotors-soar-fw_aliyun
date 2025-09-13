@@ -6,26 +6,48 @@ common:
 
 # 查询地址组配置 
 describe_address_book:
-  page_size: 100     # 每页返回数量
+  page_size: 500     # 每页返回数量
 
 # 创建地址组配置 
 add_address_book:
-  group_name_prefix: 'DEV-P-Deny-Secops-Blacklist'     # 地址组名称前缀
+  group_name_prefix: 'P-Deny-Secops-Blacklist'     # 地址组名称前缀
+  addresslist: '1.1.1.1/32'
   description: '自动创建的安全封禁地址组'                  # 地址组描述
 
 # 修改地址组配置
 modify_address_book:
-  max_addresses_per_group: 2000                         # 地址组最大容量
+  max_addresses_per_group: 3                         # 地址组最大容量
 
 # 查询控制策略配置 
 describe_control_policy:
-  page_size: 100     # 每页返回数量
+  page_size: 500     # 每页返回数量
 
 # 创建控制策略配置 
 add_control_policy:
-  acl_action: 'log'                                     # 策略动作
-  proto: 'ANY'                                          # 协议类型
-  application_name: 'ANY'                               # 应用类型
-  new_order: 2                                          # 策略优先级
-  destination_any: '0.0.0.0/0'                         # 目的地址
-  source_any: '0.0.0.0/0'                              # 源地址
+  acl_action: 'log'
+  ip:
+    proto: 'ANY'                           # 协议类型
+    application_name_list:                 # 应用类型
+      - 'ANY'                              
+  domain:
+    proto: 'TCP'                           # 协议类型
+    application_name_list:                 # 应用类型
+      - 'FTP'
+      - 'SSH'
+      - 'HTTP'
+      - 'HTTPS'
+      - 'Memcache'
+      - 'MongoDB'
+      - 'MQTT'
+      - 'MySQL'
+      - 'RDP'
+      - 'Redis'
+      - 'SMTP'
+      - 'SMTPS'
+      - 'SSL_No_Cert'
+      - 'SSL'
+      - 'VNC'
+    domain_resolve_type: 'DNS'             # 域名解析方式
+  new_order: 2                             # 策略优先级
+  destination: '0.0.0.0/0'                 # 目的地址
+  source: '0.0.0.0/0'                      # 源地址

@@ -100,8 +100,9 @@ class App(BaseApp):
 
     def DescribeControlPolicy(self, params):
         direction = params.get("direction")
+        description = params.get("description")
         describecontrolpolicyobj = FwAliyunApp(ak=self.ak, sk=self.sk, endpoint=self.endpoint, proxies=self.proxies)
-        res = describecontrolpolicyobj.describe_control_policy(direction)
+        res = describecontrolpolicyobj.describe_control_policy(direction, description)
         return res
 
     def AddControlPolicy(self, params):
@@ -116,8 +117,9 @@ class App(BaseApp):
         neworder = params.get("neworder")
         applicationname = params.get("applicationname")
         applicationnamelist = params.get("applicationnamelist")
+        domainresolvetype = params.get("domainresolvetype")
         addcontrolpolicyobj = FwAliyunApp(ak=self.ak, sk=self.sk, endpoint=self.endpoint, proxies=self.proxies)
-        res = addcontrolpolicyobj.add_control_policy(aclaction, description, destination, destinationtype, direction, proto, source, sourcetype, neworder, applicationname, applicationnamelist)
+        res = addcontrolpolicyobj.add_control_policy(aclaction, description, destination, destinationtype, direction, proto, source, sourcetype, neworder, applicationname, applicationnamelist, domainresolvetype)
         return res
 
     def DeleteControlPolicy(self, params):
