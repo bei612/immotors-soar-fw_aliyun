@@ -1,9 +1,5 @@
 # 阿里云云防火墙配置文件
 
-# 通用配置
-common:
-  region_id: 'cn-hangzhou'                 # 阿里云地域ID
-
 # 查询地址组配置 
 describe_address_book:
   page_size: 500                           # 每页返回数量
@@ -12,7 +8,6 @@ describe_address_book:
 add_address_book:
   group_name_prefix: 'DEV-P-Deny-Secops-Blacklist'     # 地址组名称前缀
   addresslist: '1.1.1.1/32'                            # 地址组初始地址列表
-  description: '自动创建的安全封禁地址组'                  # 地址组描述
 
 # 修改地址组配置
 modify_address_book:

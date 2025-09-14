@@ -36,7 +36,9 @@ class FwAliyunApp:
             address_list=addresslist
         )
         runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
-        utils.check_os_type()
+        # 获取实例名
+        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
+        utils.check_os_type(instance_name)
         try:
             res = client.add_address_book_with_options(add_address_book_request, runtime).to_map()
             logger.info(f'{res}')
@@ -64,7 +66,9 @@ class FwAliyunApp:
             group_uuid=groupuuid
         )
         runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
-        utils.check_os_type()
+        # 获取实例名
+        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
+        utils.check_os_type(instance_name)
         try:
             res = client.delete_address_book_with_options(delete_address_book_request, runtime).to_map()
             logger.info(f'{res}')
@@ -82,7 +86,9 @@ class FwAliyunApp:
             page_size=utils.get_config('describe_address_book.page_size')
         )
         runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
-        utils.check_os_type()
+        # 获取实例名
+        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
+        utils.check_os_type(instance_name)
         try:
             res = client.describe_address_book_with_options(describe_address_book_request, runtime).to_map()
             logger.info(f'{res}')
@@ -101,7 +107,9 @@ class FwAliyunApp:
             address_list=addresslist
         )
         runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
-        utils.check_os_type()
+        # 获取实例名
+        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
+        utils.check_os_type(instance_name)
         try:
             res = client.modify_address_book_with_options(modify_address_book_request, runtime).to_map()
             logger.info(f'{res}')
@@ -120,7 +128,9 @@ class FwAliyunApp:
             page_size=utils.get_config('describe_control_policy.page_size')
         )
         runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
-        utils.check_os_type()
+        # 获取实例名
+        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
+        utils.check_os_type(instance_name)
         try:
             res = client.describe_control_policy_with_options(describe_control_policy_request, runtime).to_map()
             logger.info(f'{res}')
@@ -148,7 +158,9 @@ class FwAliyunApp:
                 domain_resolve_type=domainresolvetype
             )
         runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
-        utils.check_os_type()
+        # 获取实例名
+        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
+        utils.check_os_type(instance_name)
         try:
             res = client.add_control_policy_with_options(add_control_policy_request, runtime).to_map()
             logger.info(f"{res}")
@@ -175,7 +187,9 @@ class FwAliyunApp:
             direction=direction
         )
         runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
-        utils.check_os_type()
+        # 获取实例名
+        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
+        utils.check_os_type(instance_name)
         try:
             res = client.delete_control_policy_with_options(delete_control_policy_request, runtime).to_map()
             logger.info(f'{res}')
@@ -186,38 +200,27 @@ class FwAliyunApp:
             return res
 
     def auto_block_task(self, addr, direction=None):
-        # 加载日志配置
-        utils.check_os_type()    
+        # 加载日志配置（支持实例名）
+        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
+        utils.check_os_type(instance_name)
         
         # 验证SOAR入参IP（单个IP） or 手动入参IPS（多个IP）
         addrs = utils.parse_ip_list(addr)
         if not addrs:
-            msg = {
-                "addr": f"{addrs}",
-                "desc": "无需封禁"
+            return {
+                "statusCode": 400,
+                "error": "没有有效的IP地址",
+                "body": {
+                    "total_ips": 0,
+                    "success_count": 0,
+                    "failed_count": 0,
+                    "existed_count": 0,
+                    "results": []
+                }
             }
-            logger.info(f'{msg}')
-            return msg
         
         """ 初始化处理状态变量定义及初始化 """
         # 其中任何一个需要封禁的ip同一时间值可以位于4个列表 list_remain_addrs list_success_addrs list_failed_addrs list_existed_addrs 中的一个
-        # ┌────────────────────┐
-        # │  list_remain_addrs │
-        # └─────────┬──────────┘
-        #           │
-        #           │ 处理循环
-        #           ▼
-        # ┌────────────────────────────────────────────────────────────┐
-        # │           判断每个地址的处理结果，分发到不同列表                 │
-        # └─────────┬───────────────┬───────────────┬──────────────────┘
-        #           │               │               │
-        #           │               │               │
-        #           ▼               ▼               ▼
-        # ┌────────────────┐ ┌────────────────┐ ┌────────────────────┐
-        # │ list_success_  │ │ list_failed_   │ │ list_existed_      │
-        # │    addrs       │ │    addrs       │ │    addrs           │
-        # └────────────────┘ └────────────────┘ └────────────────────┘
-        # 
         # list_remain_addrs 为消费前的任务ip地址列表，list_remain_addrs list_success_addrs list_failed_addrs list_existed_addrs 则是经过处理后ip应该处于的结果列表
         # list_success_addrs 为封禁成功的ip地址字典的列表
         # list_failed_addrs 为封禁失败的ip地址字典的列表
@@ -484,16 +487,41 @@ class FwAliyunApp:
             else:
                 # 如果本轮循环处理了IP，则将连续处理失败次数归零
                 consecutive_failures = 0
-        msg = list_success_addrs + list_failed_addrs + list_existed_addrs
-        logger.info(f"{msg}")
-        return msg     
+        # 组装统一的返回结果格式
+        all_results = list_success_addrs + list_failed_addrs + list_existed_addrs
+        
+        if list_success_addrs:
+            return {
+                "statusCode": 200,
+                "message": f"成功将 {len(list_success_addrs)} 个IP添加到云防火墙封禁列表",
+                "body": {
+                    "total_ips": len(addrs),
+                    "success_count": len(list_success_addrs),
+                    "failed_count": len(list_failed_addrs),
+                    "existed_count": len(list_existed_addrs),
+                    "results": all_results
+                }
+            }
+        else:
+            return {
+                "statusCode": 400,
+                "error": "所有IP都无法添加到云防火墙封禁列表",
+                "body": {
+                    "total_ips": len(addrs),
+                    "success_count": len(list_success_addrs),
+                    "failed_count": len(list_failed_addrs),
+                    "existed_count": len(list_existed_addrs),
+                    "results": all_results
+                }
+            }     
 
 
 
 
     def auto_unblock_task(self, addr, direction=None):
-        # 加载日志配置
-        utils.check_os_type()
+        # 加载日志配置（支持实例名）
+        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
+        utils.check_os_type(instance_name)
         
         # 验证direction参数
         if direction not in ['in', 'out']:
@@ -507,12 +535,16 @@ class FwAliyunApp:
         # 验证SOAR入参IP（单个IP） or 手动入参IPS（多个IP）
         addrs = utils.parse_ip_list(addr)
         if not addrs:
-            msg = {
-                "addr": f"{addrs}",
-                "desc": "无需解封"
+            return {
+                "statusCode": 400,
+                "error": "没有有效的IP地址",
+                "body": {
+                    "total_ips": 0,
+                    "success_count": 0,
+                    "failed_count": 0,
+                    "results": []
+                }
             }
-            logger.info(f'{msg}')
-            return msg
         
         """ 初始化处理状态变量定义及初始化 """
         # list_remain_addrs 为待解封的任务ip地址列表
@@ -674,6 +706,28 @@ class FwAliyunApp:
                 # 如果本轮循环处理了IP，则将连续处理失败次数归零
                 consecutive_failures = 0
         
-        msg = list_success_addrs + list_failed_addrs
-        logger.info(f"{msg}")
-        return msg
+        # 组装统一的返回结果格式
+        all_results = list_success_addrs + list_failed_addrs
+        
+        if list_success_addrs:
+            return {
+                "statusCode": 200,
+                "message": f"成功从云防火墙封禁列表中移除 {len(list_success_addrs)} 个IP",
+                "body": {
+                    "total_ips": len(addrs),
+                    "success_count": len(list_success_addrs),
+                    "failed_count": len(list_failed_addrs),
+                    "results": all_results
+                }
+            }
+        else:
+            return {
+                "statusCode": 400,
+                "error": "没有找到需要移除的IP",
+                "body": {
+                    "total_ips": len(addrs),
+                    "success_count": len(list_success_addrs),
+                    "failed_count": len(list_failed_addrs),
+                    "results": all_results
+                }
+            }
