@@ -27,7 +27,6 @@ class FwAliyunApp:
 
     # 阿里云云防火墙原子方法
 
-    @utils.setup_logging(use_instance_name=True)
     def add_address_book(self, groupname, grouptype, description, addresslist):
         client = self.create_client()
         add_address_book_request = cloudfw_20171207_models.AddAddressBookRequest(
@@ -58,7 +57,6 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
-    @utils.setup_logging(use_instance_name=True)
     def delete_address_book(self, groupuuid):
         client = self.create_client()
         delete_address_book_request = cloudfw_20171207_models.DeleteAddressBookRequest(
@@ -74,7 +72,6 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
-    @utils.setup_logging(use_instance_name=True)
     def describe_address_book(self, query, grouptype):
         client = self.create_client()
         describe_address_book_request = cloudfw_20171207_models.DescribeAddressBookRequest(
@@ -92,7 +89,6 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
-    @utils.setup_logging(use_instance_name=True)
     def modify_address_book(self, groupname, groupuuid, description, addresslist):
         client = self.create_client()
         modify_address_book_request = cloudfw_20171207_models.ModifyAddressBookRequest(
@@ -111,7 +107,6 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
-    @utils.setup_logging(use_instance_name=True)
     def describe_control_policy(self, direction, description=None):
         client = self.create_client()
         describe_control_policy_request = cloudfw_20171207_models.DescribeControlPolicyRequest(
@@ -130,7 +125,6 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
-    @utils.setup_logging(use_instance_name=True)
     def add_control_policy(self, aclaction, description, destination, destinationtype, direction, proto, source,
                           sourcetype, neworder, applicationname=None, applicationnamelist=None, domainresolvetype=None):
         client = self.create_client()
@@ -168,7 +162,6 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
-    @utils.setup_logging(use_instance_name=True)
     def delete_control_policy(self, acluuid, direction):
         client = self.create_client()
         delete_control_policy_request = cloudfw_20171207_models.DeleteControlPolicyRequest(
@@ -185,7 +178,6 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
-    @utils.setup_logging(use_instance_name=True)
     def auto_block_task(self, addr, direction=None):
         
         # 验证SOAR入参IP（单个IP） or 手动入参IPS（多个IP）
@@ -502,7 +494,6 @@ class FwAliyunApp:
 
 
 
-    @utils.setup_logging(use_instance_name=True)
     def auto_unblock_task(self, addr, direction=None):
         
         # 验证direction参数
