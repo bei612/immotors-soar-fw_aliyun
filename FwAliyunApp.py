@@ -27,6 +27,7 @@ class FwAliyunApp:
 
     # 阿里云云防火墙原子方法
 
+    @utils.setup_logging(use_instance_name=True)
     def add_address_book(self, groupname, grouptype, description, addresslist):
         client = self.create_client()
         add_address_book_request = cloudfw_20171207_models.AddAddressBookRequest(
@@ -36,9 +37,6 @@ class FwAliyunApp:
             address_list=addresslist
         )
         runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
-        # 获取实例名
-        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
-        utils.check_os_type(instance_name)
         try:
             res = client.add_address_book_with_options(add_address_book_request, runtime).to_map()
             logger.info(f'{res}')
@@ -60,15 +58,13 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
+    @utils.setup_logging(use_instance_name=True)
     def delete_address_book(self, groupuuid):
         client = self.create_client()
         delete_address_book_request = cloudfw_20171207_models.DeleteAddressBookRequest(
             group_uuid=groupuuid
         )
         runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
-        # 获取实例名
-        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
-        utils.check_os_type(instance_name)
         try:
             res = client.delete_address_book_with_options(delete_address_book_request, runtime).to_map()
             logger.info(f'{res}')
@@ -78,6 +74,7 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
+    @utils.setup_logging(use_instance_name=True)
     def describe_address_book(self, query, grouptype):
         client = self.create_client()
         describe_address_book_request = cloudfw_20171207_models.DescribeAddressBookRequest(
@@ -86,9 +83,6 @@ class FwAliyunApp:
             page_size=utils.get_config('describe_address_book.page_size')
         )
         runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
-        # 获取实例名
-        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
-        utils.check_os_type(instance_name)
         try:
             res = client.describe_address_book_with_options(describe_address_book_request, runtime).to_map()
             logger.info(f'{res}')
@@ -98,6 +92,7 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
+    @utils.setup_logging(use_instance_name=True)
     def modify_address_book(self, groupname, groupuuid, description, addresslist):
         client = self.create_client()
         modify_address_book_request = cloudfw_20171207_models.ModifyAddressBookRequest(
@@ -107,9 +102,6 @@ class FwAliyunApp:
             address_list=addresslist
         )
         runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
-        # 获取实例名
-        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
-        utils.check_os_type(instance_name)
         try:
             res = client.modify_address_book_with_options(modify_address_book_request, runtime).to_map()
             logger.info(f'{res}')
@@ -119,6 +111,7 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
+    @utils.setup_logging(use_instance_name=True)
     def describe_control_policy(self, direction, description=None):
         client = self.create_client()
         describe_control_policy_request = cloudfw_20171207_models.DescribeControlPolicyRequest(
@@ -128,9 +121,6 @@ class FwAliyunApp:
             page_size=utils.get_config('describe_control_policy.page_size')
         )
         runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
-        # 获取实例名
-        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
-        utils.check_os_type(instance_name)
         try:
             res = client.describe_control_policy_with_options(describe_control_policy_request, runtime).to_map()
             logger.info(f'{res}')
@@ -140,6 +130,7 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
+    @utils.setup_logging(use_instance_name=True)
     def add_control_policy(self, aclaction, description, destination, destinationtype, direction, proto, source,
                           sourcetype, neworder, applicationname=None, applicationnamelist=None, domainresolvetype=None):
         client = self.create_client()
@@ -158,9 +149,6 @@ class FwAliyunApp:
                 domain_resolve_type=domainresolvetype
             )
         runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
-        # 获取实例名
-        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
-        utils.check_os_type(instance_name)
         try:
             res = client.add_control_policy_with_options(add_control_policy_request, runtime).to_map()
             logger.info(f"{res}")
@@ -180,6 +168,7 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
+    @utils.setup_logging(use_instance_name=True)
     def delete_control_policy(self, acluuid, direction):
         client = self.create_client()
         delete_control_policy_request = cloudfw_20171207_models.DeleteControlPolicyRequest(
@@ -187,9 +176,6 @@ class FwAliyunApp:
             direction=direction
         )
         runtime = util_models.RuntimeOptions(https_proxy=self.proxies, http_proxy=self.proxies)
-        # 获取实例名
-        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
-        utils.check_os_type(instance_name)
         try:
             res = client.delete_control_policy_with_options(delete_control_policy_request, runtime).to_map()
             logger.info(f'{res}')
@@ -199,10 +185,8 @@ class FwAliyunApp:
             logger.error(f'{e}')
             return res
 
+    @utils.setup_logging(use_instance_name=True)
     def auto_block_task(self, addr, direction=None):
-        # 加载日志配置（支持实例名）
-        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
-        utils.check_os_type(instance_name)
         
         # 验证SOAR入参IP（单个IP） or 手动入参IPS（多个IP）
         addrs = utils.parse_ip_list(addr)
@@ -518,10 +502,8 @@ class FwAliyunApp:
 
 
 
+    @utils.setup_logging(use_instance_name=True)
     def auto_unblock_task(self, addr, direction=None):
-        # 加载日志配置（支持实例名）
-        instance_name = getattr(self, 'asset', None) and getattr(self.asset, 'name', None)
-        utils.check_os_type(instance_name)
         
         # 验证direction参数
         if direction not in ['in', 'out']:
